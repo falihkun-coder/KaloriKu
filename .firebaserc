@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "personal-hub-d9f2f"
+  },
+  "targets": {
+    "personal-hub-d9f2f": {
+      "hosting": {
+        "kaloriku": ["kaloriku-d9f2f"]
+      }
+    }
+  }
+}

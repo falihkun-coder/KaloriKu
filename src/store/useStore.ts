@@ -1,0 +1,174 @@
+import { create } from "zustand";
+import { db } from "@/lib/firebase";
+import {
+  collection,
+  getDocs,
+  addDoc,
+  query,
+  updateDoc,
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  where,
+} from "firebase/firestore";
+import { FoodEntry, Goals, WeightLog, DEFAULT_GOALS } from "@/lib/calculations";
+
+interface AppState {
+  userId: string | null;
+  entries: FoodEntry[];
+  goals: Goals;
+  weights: WeightLog[];
+  isLoading: boolean;
+
+  // UI: dialog tambah/edit makan bisa dibuka dari sidebar, FAB, dan empty state
+  foodDialogOpen: boolean;
+  editingEntry: FoodEntry | null;
+  openFoodDialog: (entry?: FoodEntry) => void;
+  closeFoodDialog: () => void;
+
+  fetchData: (userId?: string) => Promise<void>;
+  addEntry: (entry: Omit<FoodEntry, "id">) => Promise<void>;
+  updateEntry: (id: string, entry: Partial<Omit<FoodEntry, "id">>) => Promise<void>;
+  deleteEntry: (id: string) => Promise<void>;
+  updateGoals: (goals: Partial<Goals>) => Promise<void>;
+  addWeight: (w: Omit<WeightLog, "id">) => Promise<void>;
+  deleteWeight: (id: string) => Promise<void>;
+}
+
+// Entries selalu urut terbaru dulu, konsisten dengan fetchData.
+const sortByCreatedDesc = (entries: FoodEntry[]) =>
+  [...entries].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+export const useStore = create<AppState>((set, get) => ({
+  userId: null,
+  entries: [],
+  goals: DEFAULT_GOALS,
+  weights: [],
+  isLoading: false,
+
+  foodDialogOpen: false,
+  editingEntry: null,
+  openFoodDialog: (entry) => set({ foodDialogOpen: true, editingEntry: entry ?? null }),
+  closeFoodDialog: () => set({ foodDialogOpen: false, editingEntry: null }),
+
+  fetchData: async (uid?: string) => {
+    const currentUid = uid || get().userId;
+    if (!currentUid) return;
+
+    set({ isLoading: true, userId: currentUid });
+    try {
+      const entryQuery = query(collection(db, "foodEntries"), where("userId", "==", currentUid));
+      const weightQuery = query(collection(db, "weights"), where("userId", "==", currentUid));
+      const goalsDocRef = doc(db, "goals", currentUid);
+
+      const [entrySnapshot, weightSnapshot, goalsDocSnap] = await Promise.all([
+        getDocs(entryQuery),
+        getDocs(weightQuery),
+        getDoc(goalsDocRef),
+      ]);
+
+      const entries = sortByCreatedDesc(
+        entrySnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as FoodEntry[]
+      );
+
+      const weights = (weightSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as WeightLog[]).sort(
+        (a, b) => (a.date < b.date ? -1 : 1)
+      );
+
+      let goals: Goals = { ...DEFAULT_GOALS, userId: currentUid };
+      if (goalsDocSnap.exists()) {
+        goals = { ...goals, ...(goalsDocSnap.data() as Goals) };
+      } else {
+        await setDoc(goalsDocRef, goals);
+      }
+
+      set({ entries, weights, goals, isLoading: false });
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      set({ isLoading: false });
+    }
+  },
+
+  addEntry: async (entry) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+
+      const newEntry = { ...entry, userId: state.userId };
+      const docRef = await addDoc(collection(db, "foodEntries"), newEntry);
+      set({ entries: sortByCreatedDesc([{ id: docRef.id, ...newEntry } as FoodEntry, ...state.entries]) });
+    } catch (error) {
+      console.error("Error adding entry:", error);
+      throw error;
+    }
+  },
+
+  updateEntry: async (id, updated) => {
+    try {
+      const state = get();
+      await updateDoc(doc(db, "foodEntries", id), updated);
+      set({
+        entries: sortByCreatedDesc(
+          state.entries.map((e) => (e.id === id ? { ...e, ...updated, id } : e))
+        ),
+      });
+    } catch (error) {
+      console.error("Error updating entry:", error);
+      throw error;
+    }
+  },
+
+  deleteEntry: async (id) => {
+    try {
+      const state = get();
+      await deleteDoc(doc(db, "foodEntries", id));
+      set({ entries: state.entries.filter((e) => e.id !== id) });
+    } catch (error) {
+      console.error("Error deleting entry:", error);
+      throw error;
+    }
+  },
+
+  updateGoals: async (goals) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+
+      const newGoals = { ...state.goals, ...goals, userId: state.userId };
+      await setDoc(doc(db, "goals", state.userId), newGoals);
+      set({ goals: newGoals });
+    } catch (error) {
+      console.error("Error updating goals:", error);
+      throw error;
+    }
+  },
+
+  addWeight: async (w) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+
+      const newWeight = { ...w, userId: state.userId };
+      const docRef = await addDoc(collection(db, "weights"), newWeight);
+      const weights = [...state.weights, { id: docRef.id, ...newWeight } as WeightLog].sort((a, b) =>
+        a.date < b.date ? -1 : 1
+      );
+      set({ weights });
+    } catch (error) {
+      console.error("Error adding weight:", error);
+      throw error;
+    }
+  },
+
+  deleteWeight: async (id) => {
+    try {
+      const state = get();
+      await deleteDoc(doc(db, "weights", id));
+      set({ weights: state.weights.filter((w) => w.id !== id) });
+    } catch (error) {
+      console.error("Error deleting weight:", error);
+      throw error;
+    }
+  },
+}));
