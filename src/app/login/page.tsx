@@ -1,42 +1,45 @@
 "use client";
 
 import { useState } from "react";
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "firebase/auth";
+import { signInWithPopup, signInWithRedirect, GoogleAuthProvider } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { Input } from "@/components/ui/input";
-import { Loader2, LockKeyhole, Flame } from "lucide-react";
+import { Loader2, Flame } from "lucide-react";
 import { toast } from "sonner";
 
-export default function LoginPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false);
+function GoogleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+      <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z" />
+      <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24z" />
+      <path fill="#FBBC05" d="M5.27 14.29A7.14 7.14 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a11.99 11.99 0 0 0 0 10.76l3.98-3.09z" />
+      <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z" />
+    </svg>
+  );
+}
 
-  const handleAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !password) {
-      toast.error("Isi email & password dulu");
-      return;
-    }
+export default function LoginPage() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleGoogle = async () => {
     setIsLoading(true);
     try {
-      if (isRegistering) {
-        await createUserWithEmailAndPassword(auth, email, password);
-        toast.success("Akun berhasil dibuat!");
-      } else {
-        await signInWithEmailAndPassword(auth, email, password);
-        toast.success("Selamat datang!");
-      }
+      await signInWithPopup(auth, new GoogleAuthProvider());
+      toast.success("Selamat datang!");
     } catch (error: unknown) {
-      console.error(error);
       const code = (error as { code?: string })?.code;
-      if (code === "auth/invalid-credential" || code === "auth/wrong-password") {
-        toast.error("Email atau password salah");
-      } else if (code === "auth/email-already-in-use") {
-        toast.error("Email sudah terdaftar");
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        // user nutup popup — bukan error
+      } else if (code === "auth/popup-blocked") {
+        // popup keblokir browser → pakai full-page redirect
+        await signInWithRedirect(auth, new GoogleAuthProvider());
+        return;
+      } else if (code === "auth/unauthorized-domain") {
+        toast.error("Domain ini belum diizinkan — tambah kaloriku-d9f2f.web.app di Authentication → Settings → Authorized domains");
+      } else if (code === "auth/operation-not-allowed" || code === "auth/configuration-not-found") {
+        toast.error("Provider Google belum diaktifkan di Firebase console");
       } else {
-        toast.error((error as Error)?.message || "Gagal masuk");
+        console.error(error);
+        toast.error("Gagal masuk pakai Google");
       }
     } finally {
       setIsLoading(false);
@@ -54,25 +57,30 @@ export default function LoginPage() {
       </div>
 
       <div className="rounded-[24px] border border-border bg-card p-6 shadow-sm">
-        <h2 className="font-heading text-lg font-bold">{isRegistering ? "Buat akun" : "Masuk"}</h2>
+        <h2 className="font-heading text-lg font-bold">Masuk</h2>
         <p className="text-sm text-muted-foreground mt-1 mb-5">
-          {isRegistering ? "Daftar buat mulai catat makanmu." : "Masukin email & password buat akses dashboard."}
+          Sekali klik pakai akun Google, langsung ke dashboard.
         </p>
 
-        <form onSubmit={handleAuth} className="space-y-3">
-          <Input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} disabled={isLoading} className="h-11 rounded-[12px] bg-background" required />
-          <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} disabled={isLoading} className="h-11 rounded-[12px] bg-background" required />
+        <button
+          type="button"
+          onClick={handleGoogle}
+          disabled={isLoading}
+          className="w-full h-12 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2.5"
+        >
+          {isLoading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <span className="h-6 w-6 rounded-full bg-white flex items-center justify-center shrink-0">
+              <GoogleIcon />
+            </span>
+          )}
+          Masuk pakai Google
+        </button>
 
-          <button type="submit" disabled={isLoading}
-            className="w-full h-11 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 mt-1">
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <LockKeyhole className="h-4 w-4" />}
-            {isRegistering ? "Daftar" : "Masuk"}
-          </button>
-          <button type="button" onClick={() => setIsRegistering(!isRegistering)} disabled={isLoading}
-            className="w-full text-sm text-muted-foreground hover:text-foreground transition-colors py-1">
-            {isRegistering ? "Udah punya akun? Masuk" : "Belum punya akun? Daftar"}
-          </button>
-        </form>
+        <p className="text-[11px] text-muted-foreground text-center mt-4">
+          Datamu cuma bisa diakses akunmu sendiri.
+        </p>
       </div>
     </div>
   );
