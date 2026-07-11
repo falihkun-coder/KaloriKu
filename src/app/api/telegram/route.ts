@@ -140,12 +140,16 @@ export async function POST(request: Request) {
         });
         await pendingRef.delete();
 
-        // Kasih angka sisa hari ini langsung, biar kerasa "app"-nya
-        const [entries, goals] = await Promise.all([getRecentEntries(pending.userId), getGoals(pending.userId)]);
-        const consumed = consumedToday(entries);
-        const sisa = goals.kcalTarget - consumed.kcal;
-        let msg = `✅ Tercatat: ${food.name} — ${fmtNum(food.kcal)} kkal\n\n`;
-        msg += sisa >= 0 ? `Sisa hari ini: ${fmtNum(sisa)} kkal` : `⚠️ Lewat target ${fmtNum(Math.abs(sisa))} kkal`;
+        // Konfirmasi dulu — hitungan sisa jangan pernah blok flow utama
+        let msg = `✅ Tercatat: ${food.name} — ${fmtNum(food.kcal)} kkal`;
+        try {
+          const [entries, goals] = await Promise.all([getRecentEntries(pending.userId), getGoals(pending.userId)]);
+          const consumed = consumedToday(entries);
+          const sisa = goals.kcalTarget - consumed.kcal;
+          msg += `\n\n${sisa >= 0 ? `Sisa hari ini: ${fmtNum(sisa)} kkal` : `⚠️ Lewat target ${fmtNum(Math.abs(sisa))} kkal`}`;
+        } catch (e) {
+          console.error("Failed to compute remaining:", e);
+        }
         await editMessage(chatId, messageId, msg);
         await answerCallback(cb.id, "Tersimpan!");
         return NextResponse.json({ success: true });
