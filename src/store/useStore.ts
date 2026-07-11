@@ -12,7 +12,7 @@ import {
   deleteDoc,
   where,
 } from "firebase/firestore";
-import { FoodEntry, Goals, WeightLog, DEFAULT_GOALS } from "@/lib/calculations";
+import { FoodEntry, Goals, WeightLog, WaterLog, DEFAULT_GOALS, dateKeyWIB } from "@/lib/calculations";
 
 export type UserProfile = {
   name?: string;
@@ -26,6 +26,7 @@ interface AppState {
   entries: FoodEntry[];
   goals: Goals;
   weights: WeightLog[];
+  waterLogs: WaterLog[];
   profile: UserProfile;
   isLoading: boolean;
 
@@ -43,6 +44,8 @@ interface AppState {
   updateGoals: (goals: Partial<Goals>) => Promise<void>;
   addWeight: (w: Omit<WeightLog, "id">) => Promise<void>;
   deleteWeight: (id: string) => Promise<void>;
+  /** Tambah air minum hari ini (ml). */
+  addWater: (ml: number) => Promise<void>;
   /** Bikin kode sekali-pakai buat link akun Telegram, return kodenya. */
   createTelegramLink: () => Promise<string>;
 }
@@ -56,6 +59,7 @@ export const useStore = create<AppState>((set, get) => ({
   entries: [],
   goals: DEFAULT_GOALS,
   weights: [],
+  waterLogs: [],
   profile: {},
   isLoading: false,
 
@@ -72,12 +76,14 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const entryQuery = query(collection(db, "foodEntries"), where("userId", "==", currentUid));
       const weightQuery = query(collection(db, "weights"), where("userId", "==", currentUid));
+      const waterQuery = query(collection(db, "waterLogs"), where("userId", "==", currentUid));
       const goalsDocRef = doc(db, "goals", currentUid);
       const userDocRef = doc(db, "users", currentUid);
 
-      const [entrySnapshot, weightSnapshot, goalsDocSnap, userDocSnap] = await Promise.all([
+      const [entrySnapshot, weightSnapshot, waterSnapshot, goalsDocSnap, userDocSnap] = await Promise.all([
         getDocs(entryQuery),
         getDocs(weightQuery),
+        getDocs(waterQuery),
         getDoc(goalsDocRef),
         getDoc(userDocRef),
       ]);
@@ -89,6 +95,8 @@ export const useStore = create<AppState>((set, get) => ({
       const weights = (weightSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as WeightLog[]).sort(
         (a, b) => (a.date < b.date ? -1 : 1)
       );
+
+      const waterLogs = waterSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as WaterLog[];
 
       let goals: Goals = { ...DEFAULT_GOALS, userId: currentUid };
       if (goalsDocSnap.exists()) {
@@ -109,7 +117,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       await setDoc(userDocRef, profile, { merge: true });
 
-      set({ entries, weights, goals, profile, isLoading: false });
+      set({ entries, weights, waterLogs, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -194,6 +202,20 @@ export const useStore = create<AppState>((set, get) => ({
       set({ weights: state.weights.filter((w) => w.id !== id) });
     } catch (error) {
       console.error("Error deleting weight:", error);
+      throw error;
+    }
+  },
+
+  addWater: async (ml) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+
+      const newLog = { userId: state.userId, ml, date: dateKeyWIB() };
+      const docRef = await addDoc(collection(db, "waterLogs"), newLog);
+      set({ waterLogs: [...state.waterLogs, { id: docRef.id, ...newLog } as WaterLog] });
+    } catch (error) {
+      console.error("Error adding water:", error);
       throw error;
     }
   },

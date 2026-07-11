@@ -15,6 +15,7 @@ import { MacroCards } from "@/components/dashboard/macro-cards";
 import { MacroDonut } from "@/components/dashboard/macro-donut";
 import { MealBreakdown } from "@/components/dashboard/meal-breakdown";
 import { TodayEntries } from "@/components/dashboard/today-entries";
+import { WaterCard } from "@/components/dashboard/water-card";
 import { useAuth } from "@/components/auth-provider";
 
 export default function DashboardPage() {
@@ -91,6 +92,9 @@ export default function DashboardPage() {
 
       {/* Macro vs target */}
       <MacroCards goals={goals} consumed={consumed} />
+
+      {/* Air minum */}
+      <WaterCard />
 
       {/* Donut + per waktu makan */}
       <div className="grid lg:grid-cols-2 gap-4 md:gap-5">

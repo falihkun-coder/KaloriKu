@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator } from "lucide-react";
+import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -21,6 +21,7 @@ export function Sidebar() {
     { href: "/riwayat", icon: UtensilsCrossed, label: "Riwayat" },
     { href: "/scan", icon: ScanLine, label: "Scan AI" },
     { href: "/simulator", icon: Calculator, label: "Simulator" },
+    { href: "/tren", icon: TrendingUp, label: "Berat & Tren" },
     { href: "/goals", icon: Target, label: "Goals & Setting" },
   ];
 

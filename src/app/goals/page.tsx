@@ -19,7 +19,11 @@ const ACTIVITY_LEVELS: { id: NonNullable<Goals["activityLevel"]>; label: string;
   { id: "tinggi", label: "Tinggi", hint: "Olahraga 4x+/minggu" },
 ];
 
-type Field = { key: "kcalTarget" | "proteinTarget" | "carbsTarget" | "fatTarget" | "weightTarget"; label: string; unit: string };
+type Field = {
+  key: "kcalTarget" | "proteinTarget" | "carbsTarget" | "fatTarget" | "weightTarget" | "waterTargetMl";
+  label: string;
+  unit: string;
+};
 
 const FIELDS: Field[] = [
   { key: "kcalTarget", label: "Target kalori harian", unit: "kkal" },
@@ -27,6 +31,7 @@ const FIELDS: Field[] = [
   { key: "carbsTarget", label: "Target karbo", unit: "g" },
   { key: "fatTarget", label: "Target lemak", unit: "g" },
   { key: "weightTarget", label: "Target berat badan", unit: "kg" },
+  { key: "waterTargetMl", label: "Target air minum", unit: "ml" },
 ];
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME || "";
@@ -64,6 +69,7 @@ export default function GoalsPage() {
     carbsTarget: "",
     fatTarget: "",
     weightTarget: "",
+    waterTargetMl: "",
   });
   const [activity, setActivity] = useState<Goals["activityLevel"]>("sedang");
 
@@ -74,6 +80,7 @@ export default function GoalsPage() {
       carbsTarget: String(goals.carbsTarget ?? ""),
       fatTarget: String(goals.fatTarget ?? ""),
       weightTarget: goals.weightTarget ? String(goals.weightTarget) : "",
+      waterTargetMl: String(goals.waterTargetMl ?? 2000),
     });
     setActivity(goals.activityLevel || "sedang");
   }, [goals]);
@@ -88,6 +95,7 @@ export default function GoalsPage() {
         carbsTarget: Number(form.carbsTarget) || 0,
         fatTarget: Number(form.fatTarget) || 0,
         ...(form.weightTarget ? { weightTarget: Number(form.weightTarget) } : {}),
+        waterTargetMl: Number(form.waterTargetMl) || 2000,
         activityLevel: activity,
       });
       toast.success("Goals tersimpan!");
@@ -128,7 +136,7 @@ export default function GoalsPage() {
                   step={f.key === "weightTarget" ? "0.1" : "1"}
                   value={form[f.key]}
                   onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-                  required={f.key !== "weightTarget"}
+                  required={f.key !== "weightTarget" && f.key !== "waterTargetMl"}
                   placeholder={f.key === "weightTarget" ? "opsional" : "0"}
                   className="flex-1 bg-transparent py-3 outline-none font-heading font-bold tabular-nums text-[15px]"
                 />

@@ -3,7 +3,19 @@ import { adminDb } from "@/lib/firebase-admin";
 import { extractFood, ExtractedFood } from "@/lib/ai-extract";
 import { formatDailySummary } from "@/lib/calorie-summary";
 import { simulateFit, formatFit } from "@/lib/simulate-fit";
-import { FoodEntry, Goals, DEFAULT_GOALS, MEAL_LABELS, consumedToday, fmtNum, shiftDateKey, dateKeyWIB } from "@/lib/calculations";
+import {
+  FoodEntry,
+  Goals,
+  WaterLog,
+  DEFAULT_GOALS,
+  DEFAULT_WATER_TARGET_ML,
+  MEAL_LABELS,
+  consumedToday,
+  fmtNum,
+  shiftDateKey,
+  dateKeyWIB,
+  waterOn,
+} from "@/lib/calculations";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TG = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
@@ -208,6 +220,24 @@ export async function POST(request: Request) {
     if (text && /^\/kemarin\b/i.test(text)) {
       const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
       await sendMessage(chatId, formatDailySummary(entries, goals, shiftDateKey(dateKeyWIB(), -1)));
+      return NextResponse.json({ success: true });
+    }
+
+    // /air <ml> — catat air minum
+    if (text && /^\/air\b/i.test(text)) {
+      const ml = parseInt(text.replace(/^\/air\s*/i, ""), 10);
+      if (!ml || ml <= 0) {
+        await sendMessage(chatId, "💧 Format: /air <ml>\nContoh: /air 500");
+        return NextResponse.json({ success: true });
+      }
+      const today = dateKeyWIB();
+      await adminDb.collection("waterLogs").add({ userId, ml, date: today });
+      const snap = await adminDb.collection("waterLogs").where("userId", "==", userId).where("date", "==", today).get();
+      const logs = snap.docs.map((d) => d.data()) as WaterLog[];
+      const total = waterOn(logs.map((l, i) => ({ ...l, id: String(i) })), today);
+      const goals = await getGoals(userId);
+      const target = goals.waterTargetMl || DEFAULT_WATER_TARGET_ML;
+      await sendMessage(chatId, `💧 +${fmtNum(ml)} ml tercatat!\nHari ini: ${fmtNum(total)} / ${fmtNum(target)} ml${total >= target ? " — target tercapai! 🎉" : ""}`);
       return NextResponse.json({ success: true });
     }
 

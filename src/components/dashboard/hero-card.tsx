@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Flame, ScanLine, Calculator } from "lucide-react";
+import { Flame, ScanLine, Calculator, TrendingUp } from "lucide-react";
 import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
 
 export function HeroCard({ goals, consumed }: { goals: Goals; consumed: MacroTotals }) {
@@ -66,6 +66,12 @@ export function HeroCard({ goals, consumed }: { goals: Goals; consumed: MacroTot
             className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 text-[12px] font-semibold transition-colors"
           >
             <Calculator size={13} /> Muat gak?
+          </Link>
+          <Link
+            href="/tren"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 text-[12px] font-semibold transition-colors"
+          >
+            <TrendingUp size={13} /> Tren
           </Link>
         </div>
       </div>

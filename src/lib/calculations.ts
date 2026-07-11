@@ -27,6 +27,7 @@ export type Goals = {
   carbsTarget: number;
   fatTarget: number;
   weightTarget?: number;
+  waterTargetMl?: number;
   activityLevel?: "rendah" | "sedang" | "tinggi";
 };
 
@@ -36,6 +37,33 @@ export type WeightLog = {
   kg: number;
   date: string; // YYYY-MM-DD
 };
+
+export type WaterLog = {
+  id: string;
+  userId?: string;
+  ml: number;
+  date: string; // YYYY-MM-DD (WIB)
+};
+
+export const DEFAULT_WATER_TARGET_ML = 2000;
+
+export function waterOn(logs: WaterLog[], dateKey: string): number {
+  return logs.filter((l) => l.date === dateKey).reduce((s, l) => s + (l.ml || 0), 0);
+}
+
+/** Kalori per hari untuk n hari terakhir (untuk chart tren), urut lama → baru. */
+export function dailyKcalSeries(
+  entries: FoodEntry[],
+  days: number,
+  today: string = dateKeyWIB()
+): { date: string; kcal: number }[] {
+  const series: { date: string; kcal: number }[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const day = shiftDateKey(today, -i);
+    series.push({ date: day, kcal: consumedOn(entries, day).kcal });
+  }
+  return series;
+}
 
 export type MacroTotals = {
   kcal: number;
@@ -49,6 +77,7 @@ export const DEFAULT_GOALS: Goals = {
   proteinTarget: 120,
   carbsTarget: 250,
   fatTarget: 65,
+  waterTargetMl: 2000,
   activityLevel: "sedang",
 };
 

@@ -1,0 +1,11 @@
+{
+  "name": "kaloriku-scheduled",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "dependencies": {
+    "firebase-functions": "^6.1.0"
+  }
+}
