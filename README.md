@@ -46,6 +46,7 @@ Daily reset 00.00 WIB — semua per-hari dihitung via `dateKeyWIB()` di `calcula
 
 ## Roadmap (brief §10)
 
-- [x] S0–S1 · P0: auth, CRUD entry, goals, dashboard, riwayat
-- [ ] S2: AI extract (scan + chat via Gemini), Telegram bot + link akun, simulator
-- [ ] S3: berat & tren, cron summary (functions/), streak + water, polish
+- [x] S0–S1 · P0: auth (Google), CRUD entry, goals, dashboard, riwayat
+- [x] S2: AI extract (scan + chat via Gemini), Telegram bot @KaloriKubot + link akun, simulator
+- [x] S3: berat & tren, water log, cron summary harian 21.00 & mingguan Minggu 19.00 WIB → DM
+- [ ] P2 (backlog): Discord bot, meal library, AI meal suggestion, barcode, recipe calc, export, adaptive goal, voice log
