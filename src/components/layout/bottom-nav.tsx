@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, UtensilsCrossed, Plus, Target } from "lucide-react";
+import { Home, UtensilsCrossed, Plus, Target, ScanLine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store/useStore";
 
@@ -14,6 +14,7 @@ export function BottomNav() {
     { href: "/", icon: Home, label: "Beranda" },
     { href: "/riwayat", icon: UtensilsCrossed, label: "Riwayat" },
     { href: "#tambah", icon: Plus, label: "Tambah", isFab: true },
+    { href: "/scan", icon: ScanLine, label: "Scan" },
     { href: "/goals", icon: Target, label: "Goals" },
   ];
 

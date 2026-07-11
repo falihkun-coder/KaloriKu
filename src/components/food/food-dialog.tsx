@@ -86,25 +86,27 @@ export function FoodDialog() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
 
-  const isEditing = !!editingEntry;
+  // Punya id = edit entri lama; tanpa id = draft baru (mis. hasil scan AI)
+  const isEditing = !!editingEntry?.id;
+  const isDraft = !!editingEntry && !editingEntry.id;
 
   // Re-init form tiap dialog dibuka / entry yang diedit ganti
   const [prevKey, setPrevKey] = useState<string | null>(null);
-  const currentKey = isOpen ? editingEntry?.id ?? "new" : null;
+  const currentKey = isOpen ? editingEntry?.id ?? (isDraft ? "draft" : "new") : null;
   if (currentKey !== prevKey) {
     setPrevKey(currentKey);
     if (isOpen) {
       setForm(
         editingEntry
           ? {
-              name: editingEntry.name,
-              kcal: String(editingEntry.kcal ?? ""),
-              protein: String(editingEntry.protein_g ?? ""),
-              carbs: String(editingEntry.carbs_g ?? ""),
-              fat: String(editingEntry.fat_g ?? ""),
+              name: editingEntry.name || "",
+              kcal: editingEntry.kcal != null ? String(editingEntry.kcal) : "",
+              protein: editingEntry.protein_g != null ? String(editingEntry.protein_g) : "",
+              carbs: editingEntry.carbs_g != null ? String(editingEntry.carbs_g) : "",
+              fat: editingEntry.fat_g != null ? String(editingEntry.fat_g) : "",
               portion: editingEntry.portion || "1 porsi",
-              meal: editingEntry.meal,
-              datetime: toLocalInputValue(new Date(editingEntry.createdAt)),
+              meal: editingEntry.meal || defaultMealNow(),
+              datetime: toLocalInputValue(editingEntry.createdAt ? new Date(editingEntry.createdAt) : new Date()),
             }
           : emptyForm()
       );
@@ -125,11 +127,15 @@ export function FoodDialog() {
         meal: form.meal,
         createdAt: new Date(form.datetime).toISOString(),
       };
-      if (isEditing && editingEntry) {
+      if (isEditing && editingEntry?.id) {
         await updateEntry(editingEntry.id, payload);
         toast.success("Entri diupdate!");
       } else {
-        await addEntry({ ...payload, source: "manual" });
+        await addEntry({
+          ...payload,
+          source: editingEntry?.source || "manual",
+          ...(editingEntry?.confidence != null && { confidence: editingEntry.confidence }),
+        });
         toast.success("Makan tercatat!");
       }
       closeFoodDialog();
@@ -141,7 +147,7 @@ export function FoodDialog() {
   };
 
   const handleDelete = async () => {
-    if (!editingEntry) return;
+    if (!editingEntry?.id) return;
     if (!window.confirm("Yakin mau hapus entri ini?")) return;
     setIsDeleting(true);
     try {
@@ -162,6 +168,15 @@ export function FoodDialog() {
 
   const formEl = (
     <form onSubmit={handleSubmit} className="space-y-5 mt-4">
+      {/* Chip estimasi AI — konfirmasi/edit wajib sebelum simpan (brief §08) */}
+      {isDraft && editingEntry?.confidence != null && (
+        <div className="flex items-center gap-2 rounded-[12px] bg-white/15 border border-white/25 px-3 py-2">
+          <span className="text-[13px]">✨</span>
+          <p className="text-[12px] text-white/90 font-medium">
+            Estimasi AI (yakin {Math.round(editingEntry.confidence * 100)}%) — cek & koreksi dulu sebelum simpan.
+          </p>
+        </div>
+      )}
       {/* Nama makanan */}
       <div className="space-y-1.5">
         <label className={labelCls}>Makan apa?</label>

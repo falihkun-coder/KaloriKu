@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
 import {
   collection,
   getDocs,
@@ -14,17 +14,26 @@ import {
 } from "firebase/firestore";
 import { FoodEntry, Goals, WeightLog, DEFAULT_GOALS } from "@/lib/calculations";
 
+export type UserProfile = {
+  name?: string;
+  email?: string;
+  telegramChatId?: number;
+  tz?: string;
+};
+
 interface AppState {
   userId: string | null;
   entries: FoodEntry[];
   goals: Goals;
   weights: WeightLog[];
+  profile: UserProfile;
   isLoading: boolean;
 
-  // UI: dialog tambah/edit makan bisa dibuka dari sidebar, FAB, dan empty state
+  // UI: dialog tambah/edit makan bisa dibuka dari sidebar, FAB, empty state,
+  // dan hasil scan AI (draft tanpa id → mode tambah dengan prefill)
   foodDialogOpen: boolean;
-  editingEntry: FoodEntry | null;
-  openFoodDialog: (entry?: FoodEntry) => void;
+  editingEntry: Partial<FoodEntry> | null;
+  openFoodDialog: (entry?: Partial<FoodEntry>) => void;
   closeFoodDialog: () => void;
 
   fetchData: (userId?: string) => Promise<void>;
@@ -34,6 +43,8 @@ interface AppState {
   updateGoals: (goals: Partial<Goals>) => Promise<void>;
   addWeight: (w: Omit<WeightLog, "id">) => Promise<void>;
   deleteWeight: (id: string) => Promise<void>;
+  /** Bikin kode sekali-pakai buat link akun Telegram, return kodenya. */
+  createTelegramLink: () => Promise<string>;
 }
 
 // Entries selalu urut terbaru dulu, konsisten dengan fetchData.
@@ -45,6 +56,7 @@ export const useStore = create<AppState>((set, get) => ({
   entries: [],
   goals: DEFAULT_GOALS,
   weights: [],
+  profile: {},
   isLoading: false,
 
   foodDialogOpen: false,
@@ -61,11 +73,13 @@ export const useStore = create<AppState>((set, get) => ({
       const entryQuery = query(collection(db, "foodEntries"), where("userId", "==", currentUid));
       const weightQuery = query(collection(db, "weights"), where("userId", "==", currentUid));
       const goalsDocRef = doc(db, "goals", currentUid);
+      const userDocRef = doc(db, "users", currentUid);
 
-      const [entrySnapshot, weightSnapshot, goalsDocSnap] = await Promise.all([
+      const [entrySnapshot, weightSnapshot, goalsDocSnap, userDocSnap] = await Promise.all([
         getDocs(entryQuery),
         getDocs(weightQuery),
         getDoc(goalsDocRef),
+        getDoc(userDocRef),
       ]);
 
       const entries = sortByCreatedDesc(
@@ -83,7 +97,19 @@ export const useStore = create<AppState>((set, get) => ({
         await setDoc(goalsDocRef, goals);
       }
 
-      set({ entries, weights, goals, isLoading: false });
+      // users/{uid} — dipakai bot Telegram buat nyari user dari chatId
+      const seed: UserProfile = {
+        name: auth.currentUser?.displayName || "",
+        email: auth.currentUser?.email || "",
+        tz: "Asia/Jakarta",
+      };
+      let profile: UserProfile = seed;
+      if (userDocSnap.exists()) {
+        profile = { ...seed, ...(userDocSnap.data() as UserProfile) };
+      }
+      await setDoc(userDocRef, profile, { merge: true });
+
+      set({ entries, weights, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -170,5 +196,17 @@ export const useStore = create<AppState>((set, get) => ({
       console.error("Error deleting weight:", error);
       throw error;
     }
+  },
+
+  createTelegramLink: async () => {
+    const state = get();
+    if (!state.userId) throw new Error("User not authenticated");
+
+    const code = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+      .map((b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31])
+      .join("");
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    await setDoc(doc(db, "telegramLinks", code), { uid: state.userId, expiresAt });
+    return code;
   },
 }));

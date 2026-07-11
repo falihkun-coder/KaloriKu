@@ -1,6 +1,7 @@
 "use client";
 
-import { Flame } from "lucide-react";
+import Link from "next/link";
+import { Flame, ScanLine, Calculator } from "lucide-react";
 import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
 
 export function HeroCard({ goals, consumed }: { goals: Goals; consumed: MacroTotals }) {
@@ -51,6 +52,21 @@ export function HeroCard({ goals, consumed }: { goals: Goals; consumed: MacroTot
               ? "Santai — besok reset lagi jam 00.00 WIB."
               : "Masih aman, atur sisa buat makan berikutnya."}
           </span>
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Link
+            href="/scan"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 text-[12px] font-semibold transition-colors"
+          >
+            <ScanLine size={13} /> Scan AI
+          </Link>
+          <Link
+            href="/simulator"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-white/15 hover:bg-white/25 text-[12px] font-semibold transition-colors"
+          >
+            <Calculator size={13} /> Muat gak?
+          </Link>
         </div>
       </div>
     </div>
