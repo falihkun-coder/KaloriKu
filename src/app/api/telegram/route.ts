@@ -3,10 +3,13 @@ import { adminDb } from "@/lib/firebase-admin";
 import { extractFood, ExtractedFood } from "@/lib/ai-extract";
 import { formatDailySummary } from "@/lib/calorie-summary";
 import { simulateFit, formatFit } from "@/lib/simulate-fit";
+import { suggestMeals, formatSuggestions } from "@/lib/advisor";
 import {
   FoodEntry,
   Goals,
   WaterLog,
+  SavedMeal,
+  MealType,
   DEFAULT_GOALS,
   DEFAULT_WATER_TARGET_ML,
   MEAL_LABELS,
@@ -16,6 +19,17 @@ import {
   dateKeyWIB,
   waterOn,
 } from "@/lib/calculations";
+
+function currentMealWIB(): MealType {
+  const hour = Number(
+    new Intl.DateTimeFormat("id-ID", { hour: "numeric", hour12: false, timeZone: "Asia/Jakarta" }).format(new Date())
+  );
+  if (hour < 11) return "sarapan";
+  if (hour < 15) return "siang";
+  if (hour < 18) return "snack";
+  if (hour < 22) return "malam";
+  return "snack";
+}
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const TG = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}`;
@@ -241,6 +255,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
+    // /saran — AI saranin menu dari sisa kalori/macro
+    if (text && /^\/saran\b/i.test(text)) {
+      const procMsg = await sendMessage(chatId, "🤔 Mikirin menu...");
+      try {
+        const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
+        const consumed = consumedToday(entries);
+        const suggestions = await suggestMeals(goals, consumed);
+        await editMessage(chatId, procMsg?.result?.message_id, formatSuggestions(suggestions, goals.kcalTarget - consumed.kcal));
+      } catch (e) {
+        console.error("saran error:", e);
+        await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal bikin saran, coba lagi bentar.");
+      }
+      return NextResponse.json({ success: true });
+    }
+
     // /muat <makanan> — simulator "muat gak di target?"
     if (text && /^\/(muat|sim|simulasi)\b/i.test(text)) {
       const queryText = text.replace(/^\/(muat|sim|simulasi)\s*/i, "").trim();
@@ -286,11 +315,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // ===== Teks bebas → AI extract → konfirmasi =====
+    // ===== Teks bebas → cek library dulu (skip AI, brief §11) → AI extract → konfirmasi =====
     if (text) {
       const procMsg = await sendMessage(chatId, "⏳ Ngitung nutrisinya...");
       const procMsgId = procMsg?.result?.message_id;
       try {
+        // Makanan langganan? Pakai angka library, gak perlu Gemini.
+        const norm = text.trim().toLowerCase();
+        const mealsSnap = await adminDb.collection("meals").where("userId", "==", userId).get();
+        const fav = (mealsSnap.docs.map((d) => d.data()) as SavedMeal[]).find(
+          (m) => m.name.trim().toLowerCase() === norm
+        );
+        if (fav) {
+          const food: ExtractedFood = {
+            name: fav.name,
+            kcal: fav.kcal,
+            protein_g: fav.protein_g,
+            carbs_g: fav.carbs_g,
+            fat_g: fav.fat_g,
+            portion: fav.portion || "1 porsi",
+            meal: currentMealWIB(),
+            confidence: 1,
+          };
+          await sendConfirm(chatId, userId, food, "chat", procMsgId);
+          return NextResponse.json({ success: true });
+        }
+
         const food = await extractFood({ text });
         await sendConfirm(chatId, userId, food, "chat", procMsgId);
       } catch (e) {

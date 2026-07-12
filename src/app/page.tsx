@@ -16,6 +16,7 @@ import { MacroDonut } from "@/components/dashboard/macro-donut";
 import { MealBreakdown } from "@/components/dashboard/meal-breakdown";
 import { TodayEntries } from "@/components/dashboard/today-entries";
 import { WaterCard } from "@/components/dashboard/water-card";
+import { AdvisorCard } from "@/components/dashboard/advisor-card";
 import { useAuth } from "@/components/auth-provider";
 
 export default function DashboardPage() {
@@ -101,6 +102,9 @@ export default function DashboardPage() {
         <MacroDonut consumed={consumed} />
         <MealBreakdown todayEntries={todayEntries} />
       </div>
+
+      {/* Saran menu AI */}
+      <AdvisorCard />
 
       {/* Entri hari ini */}
       <TodayEntries todayEntries={todayEntries} />

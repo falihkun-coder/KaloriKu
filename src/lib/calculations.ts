@@ -45,6 +45,19 @@ export type WaterLog = {
   date: string; // YYYY-MM-DD (WIB)
 };
 
+/** Makanan favorit di library — 1-tap log tanpa AI (brief §7 ide 2, §11 mitigasi biaya). */
+export type SavedMeal = {
+  id: string;
+  userId?: string;
+  name: string;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  portion: string;
+  useCount?: number;
+};
+
 export const DEFAULT_WATER_TARGET_ML = 2000;
 
 export function waterOn(logs: WaterLog[], dateKey: string): number {

@@ -81,9 +81,13 @@ export function FoodDialog() {
   const updateEntry = useStore((state) => state.updateEntry);
   const deleteEntry = useStore((state) => state.deleteEntry);
 
+  const meals = useStore((state) => state.meals);
+  const addMeal = useStore((state) => state.addMeal);
+
   const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [saveFav, setSaveFav] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
 
   // Punya id = edit entri lama; tanpa id = draft baru (mis. hasil scan AI)
@@ -96,6 +100,7 @@ export function FoodDialog() {
   if (currentKey !== prevKey) {
     setPrevKey(currentKey);
     if (isOpen) {
+      setSaveFav(false);
       setForm(
         editingEntry
           ? {
@@ -136,6 +141,16 @@ export function FoodDialog() {
           source: editingEntry?.source || "manual",
           ...(editingEntry?.confidence != null && { confidence: editingEntry.confidence }),
         });
+        if (saveFav) {
+          await addMeal({
+            name: payload.name,
+            kcal: payload.kcal,
+            protein_g: payload.protein_g,
+            carbs_g: payload.carbs_g,
+            fat_g: payload.fat_g,
+            portion: payload.portion,
+          });
+        }
         toast.success("Makan tercatat!");
       }
       closeFoodDialog();
@@ -177,6 +192,35 @@ export function FoodDialog() {
           </p>
         </div>
       )}
+      {/* Chips favorit — 1-tap isi form dari library */}
+      {!isEditing && !isDraft && meals.length > 0 && (
+        <div className="space-y-1.5">
+          <label className={labelCls}>Favorit</label>
+          <div className="flex flex-wrap gap-2">
+            {meals.slice(0, 6).map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    name: m.name,
+                    kcal: String(m.kcal),
+                    protein: String(m.protein_g),
+                    carbs: String(m.carbs_g),
+                    fat: String(m.fat_g),
+                    portion: m.portion || "1 porsi",
+                  })
+                }
+                className="px-3 py-1.5 rounded-full text-[12px] font-semibold bg-white/10 text-white/90 border border-white/25 hover:bg-white/20 transition-colors"
+              >
+                ⭐ {m.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Nama makanan */}
       <div className="space-y-1.5">
         <label className={labelCls}>Makan apa?</label>
@@ -266,6 +310,27 @@ export function FoodDialog() {
           />
         </div>
       </div>
+
+      {/* Simpan ke favorit */}
+      {!isEditing && (
+        <button
+          type="button"
+          onClick={() => setSaveFav(!saveFav)}
+          className={`flex items-center gap-2 text-[13px] font-medium transition-colors ${
+            saveFav ? "text-white" : "text-white/60 hover:text-white/85"
+          }`}
+        >
+          <span
+            className={`h-4.5 w-4.5 rounded-[6px] border flex items-center justify-center text-[10px] ${
+              saveFav ? "bg-white text-primary border-white" : "border-white/40"
+            }`}
+            style={{ width: 18, height: 18 }}
+          >
+            {saveFav ? "✓" : ""}
+          </span>
+          Simpan ke favorit juga (biar next time 1-tap)
+        </button>
+      )}
 
       {/* Actions */}
       <div className="pt-2 flex gap-3">

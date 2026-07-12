@@ -12,7 +12,7 @@ import {
   deleteDoc,
   where,
 } from "firebase/firestore";
-import { FoodEntry, Goals, WeightLog, WaterLog, DEFAULT_GOALS, dateKeyWIB } from "@/lib/calculations";
+import { FoodEntry, Goals, WeightLog, WaterLog, SavedMeal, DEFAULT_GOALS, dateKeyWIB } from "@/lib/calculations";
 
 export type UserProfile = {
   name?: string;
@@ -27,6 +27,7 @@ interface AppState {
   goals: Goals;
   weights: WeightLog[];
   waterLogs: WaterLog[];
+  meals: SavedMeal[];
   profile: UserProfile;
   isLoading: boolean;
 
@@ -46,6 +47,11 @@ interface AppState {
   deleteWeight: (id: string) => Promise<void>;
   /** Tambah air minum hari ini (ml). */
   addWater: (ml: number) => Promise<void>;
+  /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
+  addMeal: (meal: Omit<SavedMeal, "id" | "useCount">) => Promise<void>;
+  deleteMeal: (id: string) => Promise<void>;
+  /** 1-tap log: catat favorit sebagai entri makan sekarang. */
+  logMeal: (meal: SavedMeal) => Promise<void>;
   /** Bikin kode sekali-pakai buat link akun Telegram, return kodenya. */
   createTelegramLink: () => Promise<string>;
 }
@@ -60,6 +66,7 @@ export const useStore = create<AppState>((set, get) => ({
   goals: DEFAULT_GOALS,
   weights: [],
   waterLogs: [],
+  meals: [],
   profile: {},
   isLoading: false,
 
@@ -77,16 +84,19 @@ export const useStore = create<AppState>((set, get) => ({
       const entryQuery = query(collection(db, "foodEntries"), where("userId", "==", currentUid));
       const weightQuery = query(collection(db, "weights"), where("userId", "==", currentUid));
       const waterQuery = query(collection(db, "waterLogs"), where("userId", "==", currentUid));
+      const mealQuery = query(collection(db, "meals"), where("userId", "==", currentUid));
       const goalsDocRef = doc(db, "goals", currentUid);
       const userDocRef = doc(db, "users", currentUid);
 
-      const [entrySnapshot, weightSnapshot, waterSnapshot, goalsDocSnap, userDocSnap] = await Promise.all([
-        getDocs(entryQuery),
-        getDocs(weightQuery),
-        getDocs(waterQuery),
-        getDoc(goalsDocRef),
-        getDoc(userDocRef),
-      ]);
+      const [entrySnapshot, weightSnapshot, waterSnapshot, mealSnapshot, goalsDocSnap, userDocSnap] =
+        await Promise.all([
+          getDocs(entryQuery),
+          getDocs(weightQuery),
+          getDocs(waterQuery),
+          getDocs(mealQuery),
+          getDoc(goalsDocRef),
+          getDoc(userDocRef),
+        ]);
 
       const entries = sortByCreatedDesc(
         entrySnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as FoodEntry[]
@@ -97,6 +107,10 @@ export const useStore = create<AppState>((set, get) => ({
       );
 
       const waterLogs = waterSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as WaterLog[];
+
+      const meals = (mealSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[]).sort(
+        (a, b) => (b.useCount || 0) - (a.useCount || 0)
+      );
 
       let goals: Goals = { ...DEFAULT_GOALS, userId: currentUid };
       if (goalsDocSnap.exists()) {
@@ -117,7 +131,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       await setDoc(userDocRef, profile, { merge: true });
 
-      set({ entries, weights, waterLogs, goals, profile, isLoading: false });
+      set({ entries, weights, waterLogs, meals, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -217,6 +231,70 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error("Error adding water:", error);
       throw error;
+    }
+  },
+
+  addMeal: async (meal) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+
+      const exists = state.meals.some((m) => m.name.trim().toLowerCase() === meal.name.trim().toLowerCase());
+      if (exists) return;
+
+      const newMeal = { ...meal, userId: state.userId, useCount: 0 };
+      const docRef = await addDoc(collection(db, "meals"), newMeal);
+      set({ meals: [...state.meals, { id: docRef.id, ...newMeal } as SavedMeal] });
+    } catch (error) {
+      console.error("Error adding meal:", error);
+      throw error;
+    }
+  },
+
+  deleteMeal: async (id) => {
+    try {
+      const state = get();
+      await deleteDoc(doc(db, "meals", id));
+      set({ meals: state.meals.filter((m) => m.id !== id) });
+    } catch (error) {
+      console.error("Error deleting meal:", error);
+      throw error;
+    }
+  },
+
+  logMeal: async (meal) => {
+    const state = get();
+    await state.addEntry({
+      name: meal.name,
+      kcal: meal.kcal,
+      protein_g: meal.protein_g,
+      carbs_g: meal.carbs_g,
+      fat_g: meal.fat_g,
+      portion: meal.portion || "1 porsi",
+      meal: (() => {
+        const hour = Number(
+          new Intl.DateTimeFormat("id-ID", { hour: "numeric", hour12: false, timeZone: "Asia/Jakarta" }).format(new Date())
+        );
+        if (hour < 11) return "sarapan" as const;
+        if (hour < 15) return "siang" as const;
+        if (hour < 18) return "snack" as const;
+        if (hour < 22) return "malam" as const;
+        return "snack" as const;
+      })(),
+      source: "manual",
+      createdAt: new Date().toISOString(),
+    });
+    // useCount buat urutan chips favorit — gagal pun gak masalah
+    try {
+      const newCount = (meal.useCount || 0) + 1;
+      await updateDoc(doc(db, "meals", meal.id), { useCount: newCount });
+      set({
+        meals: [...get().meals.map((m) => (m.id === meal.id ? { ...m, useCount: newCount } : m))].sort(
+          (a, b) => (b.useCount || 0) - (a.useCount || 0)
+        ),
+      });
+    } catch {
+      /* ignore */
     }
   },
 
