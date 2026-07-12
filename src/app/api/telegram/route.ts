@@ -181,6 +181,32 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true });
       }
 
+      // Hapus entri terakhir (dari /hapus)
+      if (action === "fd" && pendingId) {
+        const entryRef = adminDb.collection("foodEntries").doc(pendingId);
+        const entryDoc = await entryRef.get();
+        if (!entryDoc.exists) {
+          await editMessage(chatId, messageId, "Entri udah gak ada.");
+          await answerCallback(cb.id);
+          return NextResponse.json({ success: true });
+        }
+        const entry = entryDoc.data() as FoodEntry & { userId: string };
+        const ownerDoc = await adminDb.collection("users").doc(entry.userId).get();
+        if (ownerDoc.data()?.telegramChatId !== chatId) {
+          await answerCallback(cb.id, "Bukan entri kamu.");
+          return NextResponse.json({ success: true });
+        }
+        await entryRef.delete();
+        await editMessage(chatId, messageId, `🗑️ Dihapus: ${entry.name} — ${fmtNum(entry.kcal)} kkal`);
+        await answerCallback(cb.id, "Dihapus!");
+        return NextResponse.json({ success: true });
+      }
+      if (action === "fx") {
+        await editMessage(chatId, messageId, "Oke, gak jadi dihapus.");
+        await answerCallback(cb.id);
+        return NextResponse.json({ success: true });
+      }
+
       await answerCallback(cb.id);
       return NextResponse.json({ success: true });
     }
@@ -255,6 +281,38 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
+    // /hapus — hapus entri makan terakhir (dengan konfirmasi)
+    if (text && /^\/hapus\b/i.test(text)) {
+      const snap = await adminDb
+        .collection("foodEntries")
+        .where("userId", "==", userId)
+        .orderBy("createdAt", "desc")
+        .limit(1)
+        .get();
+      if (snap.empty) {
+        await sendMessage(chatId, "Belum ada entri yang bisa dihapus.");
+        return NextResponse.json({ success: true });
+      }
+      const d = snap.docs[0];
+      const e = d.data() as FoodEntry;
+      const time = new Date(e.createdAt).toLocaleString("id-ID", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "Asia/Jakarta",
+      });
+      await sendMessage(chatId, `Hapus entri terakhir?\n\n🍽️ ${e.name} — ${fmtNum(e.kcal)} kkal\n${MEAL_LABELS[e.meal] || e.meal} · ${time}`, {
+        inline_keyboard: [
+          [
+            { text: "🗑️ Hapus", callback_data: `fd:${d.id}` },
+            { text: "Batal", callback_data: `fx:_` },
+          ],
+        ],
+      });
+      return NextResponse.json({ success: true });
+    }
+
     // /saran — AI saranin menu dari sisa kalori/macro
     if (text && /^\/saran\b/i.test(text)) {
       const procMsg = await sendMessage(chatId, "🤔 Mikirin menu...");
@@ -289,6 +347,34 @@ export async function POST(request: Request) {
       } catch (e) {
         console.error("muat error:", e);
         await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal ngitung. Coba: /muat nasi padang rendang");
+      }
+      return NextResponse.json({ success: true });
+    }
+
+    // ===== Voice note → transkrip + estimasi (log <10 detik, brief §01) =====
+    if (message.voice) {
+      if ((message.voice.duration || 0) > 60) {
+        await sendMessage(chatId, "🎙️ Voice note-nya kepanjangan — kirim yang singkat aja ya (maks 1 menit), sebutin makanan + porsinya.");
+        return NextResponse.json({ success: true });
+      }
+      const procMsg = await sendMessage(chatId, "🎙️ Dengerin voice note-nya...");
+      const procMsgId = procMsg?.result?.message_id;
+      try {
+        const fileRes = await fetch(`${TG}/getFile?file_id=${message.voice.file_id}`);
+        const fileData = await fileRes.json();
+        if (!fileData.ok) throw new Error("getFile failed");
+
+        const audioRes = await fetch(`https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`);
+        const audioBase64 = Buffer.from(await audioRes.arrayBuffer()).toString("base64");
+
+        const food = await extractFood({
+          audioBase64,
+          audioMimeType: message.voice.mime_type || "audio/ogg",
+        });
+        await sendConfirm(chatId, userId, food, "chat", procMsgId);
+      } catch (e) {
+        console.error("voice error:", e);
+        await editMessage(chatId, procMsgId, "❌ Gagal proses voice note. Coba ketik aja: \"nasi goreng porsi sedang\"");
       }
       return NextResponse.json({ success: true });
     }
@@ -350,7 +436,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true });
     }
 
-    await sendMessage(chatId, "Kirim foto makanan / label nutrisi, atau ketik apa yang barusan kamu makan. 🍜\n\n/today — ringkasan hari ini\n/muat <makanan> — cek muat gak");
+    await sendMessage(
+      chatId,
+      "Ketik, kirim foto, atau voice note 🎙️ apa yang barusan kamu makan. 🍜\n\n/today — ringkasan hari ini\n/muat <makanan> — cek muat gak\n/saran — AI saranin menu\n/air <ml> — catat minum\n/hapus — hapus entri terakhir"
+    );
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Webhook error:", error);

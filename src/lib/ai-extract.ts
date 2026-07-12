@@ -18,6 +18,9 @@ export type ExtractInput = {
   imageBase64?: string;
   mimeType?: string;
   caption?: string;
+  /** Voice note (mis. Telegram: audio/ogg) — transkrip + estimasi sekaligus */
+  audioBase64?: string;
+  audioMimeType?: string;
 };
 
 function currentMealWIB(): MealType {
@@ -42,8 +45,14 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+  const inputKind = input.imageBase64
+    ? "food image (or nutrition label photo)"
+    : input.audioBase64
+      ? "Indonesian voice note describing what the user ate (transcribe it first, then estimate)"
+      : "food description";
+
   const prompt = `
-    You are an expert Indonesian nutritionist. Analyze the ${input.imageBase64 ? "food image (or nutrition label photo)" : "food description"} and estimate its nutrition.
+    You are an expert Indonesian nutritionist. Analyze the ${inputKind} and estimate its nutrition.
 
     Rules:
     - Common Indonesian foods (nasi goreng, ayam geprek, bakso, etc.): estimate realistic values for the stated portion. Default portion "1 porsi" if unstated.
@@ -65,6 +74,9 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
   const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [{ text: prompt }];
   if (input.imageBase64) {
     parts.push({ inlineData: { data: input.imageBase64, mimeType: input.mimeType || "image/jpeg" } });
+  }
+  if (input.audioBase64) {
+    parts.push({ inlineData: { data: input.audioBase64, mimeType: input.audioMimeType || "audio/ogg" } });
   }
 
   const result = await model.generateContent({ contents: [{ role: "user", parts }] });

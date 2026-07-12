@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { History, Plus, UtensilsCrossed } from "lucide-react";
+import { History, Plus, UtensilsCrossed, Download } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { FoodRow } from "@/components/food/food-row";
 import { useStore } from "@/store/useStore";
@@ -68,6 +68,37 @@ export default function RiwayatPage() {
     return [...byDay.entries()].sort((a, b) => (a[0] > b[0] ? -1 : 1));
   }, [entries, period, mealFilter]);
 
+  // Export CSV sesuai filter aktif — buat rekap pribadi / konsul ahli gizi
+  const handleExport = () => {
+    const rows = grouped.flatMap(([, dayEntries]) => dayEntries);
+    if (rows.length === 0) return;
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const header = ["tanggal", "jam", "nama", "porsi", "waktu_makan", "kcal", "protein_g", "karbo_g", "lemak_g", "sumber"];
+    const lines = rows.map((e) => {
+      const d = new Date(e.createdAt);
+      return [
+        dateKeyWIB(e.createdAt),
+        d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" }),
+        esc(e.name),
+        esc(e.portion || ""),
+        MEAL_LABELS[e.meal] || e.meal,
+        e.kcal,
+        e.protein_g,
+        e.carbs_g,
+        e.fat_g,
+        e.source,
+      ].join(",");
+    });
+    const csv = [header.join(","), ...lines].join("\n");
+    const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kaloriku-riwayat-${dateKeyWIB()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-5 pb-6">
       <PageHeader
@@ -75,13 +106,23 @@ export default function RiwayatPage() {
         description="Semua yang kamu catat, dikelompokkan per hari."
         icon={History}
         action={
-          <button
-            onClick={() => openFoodDialog()}
-            className="hidden md:flex items-center gap-2 px-4 h-11 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98]"
-          >
-            <Plus size={17} />
-            Catat makan
-          </button>
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              onClick={handleExport}
+              disabled={grouped.length === 0}
+              className="flex items-center gap-2 px-4 h-11 rounded-[12px] border border-border text-sm font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors disabled:opacity-40"
+            >
+              <Download size={16} />
+              CSV
+            </button>
+            <button
+              onClick={() => openFoodDialog()}
+              className="flex items-center gap-2 px-4 h-11 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98]"
+            >
+              <Plus size={17} />
+              Catat makan
+            </button>
+          </div>
         }
       />
 
