@@ -41,6 +41,16 @@ export default function LibraryPage() {
   const [draft, setDraft] = useState<RestoDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
 
+  // Resto yang udah pernah dicatat — buat quick-pick & autocomplete
+  const restoOptions = (() => {
+    const counts = new Map<string, number>();
+    for (const m of meals) {
+      const r = m.restaurant?.trim();
+      if (r) counts.set(r, (counts.get(r) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  })();
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!menuName.trim() || !restoName.trim()) {
@@ -159,8 +169,14 @@ export default function LibraryPage() {
             value={restoName}
             onChange={(e) => setRestoName(e.target.value)}
             placeholder="Resto — mis. McDonald's"
+            list="resto-options"
             className="rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
           />
+          <datalist id="resto-options">
+            {restoOptions.map((r) => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
           <button
             type="submit"
             disabled={searching}
@@ -170,6 +186,27 @@ export default function LibraryPage() {
             {searching ? "Nyari..." : "Cari nutrisi"}
           </button>
         </form>
+
+        {/* Quick-pick resto yang udah pernah dicatat */}
+        {restoOptions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-medium text-muted-foreground">Resto kamu:</span>
+            {restoOptions.slice(0, 6).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRestoName(r)}
+                className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors ${
+                  restoName.trim().toLowerCase() === r.toLowerCase()
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-muted-foreground border-border hover:text-foreground hover:border-primary/40"
+                }`}
+              >
+                🏪 {r}
+              </button>
+            ))}
+          </div>
+        )}
 
         {draft && (
           <div className="rounded-[16px] border border-primary/30 bg-accent/40 p-4 space-y-3">
