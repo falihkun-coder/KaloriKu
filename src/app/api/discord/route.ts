@@ -44,9 +44,6 @@ function verifySignature(rawBody: string, signature: string, timestamp: string):
   }
 }
 
-function message(content: string, ephemeral = true) {
-  return NextResponse.json({ type: 4, data: { content, ...(ephemeral ? { flags: EPHEMERAL } : {}) } });
-}
 function deferred() {
   return NextResponse.json({ type: 5, data: { flags: EPHEMERAL } });
 }
@@ -195,161 +192,153 @@ export async function POST(request: Request) {
   }
 
   // ===== Slash commands =====
+  // Semua command DEFER dulu — ACK (type 5) balik instan tanpa nyentuh
+  // Firestore/AI, kerjaan aslinya di after() tanpa deadline 3 dtk Discord.
+  // (Cold gRPC channel firebase-admin bisa >3 dtk kalau dikerjain sinkron.)
   if (interaction.type === APPLICATION_COMMAND) {
     const name: string = interaction.data?.name;
     const discordUserId: string = interaction.member?.user?.id || interaction.user?.id;
     const opts: Record<string, unknown> = {};
     for (const o of interaction.data?.options || []) opts[o.name] = o.value;
+    const token: string = interaction.token;
 
-    try {
-      // /link <kode> — hubungkan akun
-      if (name === "link") {
-        const code = String(opts.kode || "").trim();
-        const linkRef = adminDb.collection("discordLinks").doc(code);
-        const linkDoc = await linkRef.get();
-        const link = linkDoc.data();
-        const expired = link?.expiresAt && new Date(link.expiresAt).getTime() < Date.now();
-        if (!linkDoc.exists || !link?.uid || expired) {
-          return message("❌ Kode gak valid atau kadaluarsa. Ambil kode baru di web: Goals & Setting → Hubungkan Discord.");
+    after(async () => {
+      try {
+        // /link <kode> — hubungkan akun
+        if (name === "link") {
+          const code = String(opts.kode || "").trim();
+          const linkRef = adminDb.collection("discordLinks").doc(code);
+          const linkDoc = await linkRef.get();
+          const link = linkDoc.data();
+          const expired = link?.expiresAt && new Date(link.expiresAt).getTime() < Date.now();
+          if (!linkDoc.exists || !link?.uid || expired) {
+            await editOriginal(token, { content: "❌ Kode gak valid atau kadaluarsa. Ambil kode baru di web: Goals & Setting → Hubungkan Discord." });
+            return;
+          }
+          await adminDb.collection("users").doc(link.uid).set({ discordUserId }, { merge: true });
+          await linkRef.delete();
+          await editOriginal(token, { content: "✅ Akun Discord kamu ke-link! Coba `/catat`, `/today`, `/muat`, atau `/saran`." });
+          return;
         }
-        await adminDb.collection("users").doc(link.uid).set({ discordUserId }, { merge: true });
-        await linkRef.delete();
-        return message("✅ Akun Discord kamu ke-link! Coba `/catat`, `/today`, `/muat`, atau `/saran`.");
-      }
 
-      const userId = await findUserIdByDiscord(discordUserId);
-      if (!userId) {
-        return message("⚠️ Discord kamu belum ke-link. Buka web KaloriKu → Goals & Setting → Hubungkan Discord, terus jalanin `/link <kode>`.");
-      }
+        const userId = await findUserIdByDiscord(discordUserId);
+        if (!userId) {
+          await editOriginal(token, { content: "⚠️ Discord kamu belum ke-link. Buka web KaloriKu → Goals & Setting → Hubungkan Discord, terus jalanin `/link <kode>`." });
+          return;
+        }
 
-      // /today — ringkasan hari ini
-      if (name === "today") {
-        const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
-        return message(formatDailySummary(entries, goals));
-      }
+        // /today — ringkasan hari ini
+        if (name === "today") {
+          const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
+          await editOriginal(token, { content: formatDailySummary(entries, goals) });
+          return;
+        }
 
-      // /air <ml>
-      if (name === "air") {
-        const ml = Number(opts.ml) || 0;
-        if (ml <= 0) return message("💧 Isi jumlah ml yang valid, mis. /air ml:500");
-        const today = dateKeyWIB();
-        await adminDb.collection("waterLogs").add({ userId, ml, date: today });
-        const snap = await adminDb.collection("waterLogs").where("userId", "==", userId).where("date", "==", today).get();
-        const logs = snap.docs.map((d, i) => ({ id: String(i), ...d.data() })) as WaterLog[];
-        const total = waterOn(logs, today);
-        const goals = await getGoals(userId);
-        const target = goals.waterTargetMl || DEFAULT_WATER_TARGET_ML;
-        return message(`💧 +${fmtNum(ml)} ml tercatat!\nHari ini: ${fmtNum(total)} / ${fmtNum(target)} ml${total >= target ? " — target tercapai! 🎉" : ""}`);
-      }
-
-      // /muat <makanan> — simulator (AI lambat → defer)
-      if (name === "muat") {
-        const query = String(opts.makanan || "").trim();
-        if (!query) return message("🧮 Format: /muat makanan:<nama>. Contoh: /muat makanan:martabak 2 potong");
-        const token: string = interaction.token;
-        after(async () => {
-          try {
-            const [food, entries, goals] = await Promise.all([
-              extractFood({ text: query }),
-              getRecentEntries(userId),
-              getGoals(userId),
-            ]);
-            const result = simulateFit(goals, consumedToday(entries), food);
-            await editOriginal(token, { content: formatFit(result) });
-          } catch (e) {
-            console.error("Discord muat error:", e);
-            await editOriginal(token, { content: "❌ Gagal ngitung. Coba: /muat makanan:nasi padang rendang" });
+        // /air <ml>
+        if (name === "air") {
+          const ml = Number(opts.ml) || 0;
+          if (ml <= 0) {
+            await editOriginal(token, { content: "💧 Isi jumlah ml yang valid, mis. /air ml:500" });
+            return;
           }
-        });
-        return deferred();
-      }
+          const today = dateKeyWIB();
+          await adminDb.collection("waterLogs").add({ userId, ml, date: today });
+          const snap = await adminDb.collection("waterLogs").where("userId", "==", userId).where("date", "==", today).get();
+          const logs = snap.docs.map((d, i) => ({ id: String(i), ...d.data() })) as WaterLog[];
+          const total = waterOn(logs, today);
+          const goals = await getGoals(userId);
+          const target = goals.waterTargetMl || DEFAULT_WATER_TARGET_ML;
+          await editOriginal(token, {
+            content: `💧 +${fmtNum(ml)} ml tercatat!\nHari ini: ${fmtNum(total)} / ${fmtNum(target)} ml${total >= target ? " — target tercapai! 🎉" : ""}`,
+          });
+          return;
+        }
 
-      // /saran — AI saranin menu (AI lambat → defer)
-      if (name === "saran") {
-        const token: string = interaction.token;
-        after(async () => {
-          try {
-            const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
-            const consumed = consumedToday(entries);
-            const suggestions = await suggestMeals(goals, consumed);
-            await editOriginal(token, { content: formatSuggestions(suggestions, goals.kcalTarget - consumed.kcal) });
-          } catch (e) {
-            console.error("Discord saran error:", e);
-            await editOriginal(token, { content: "❌ Gagal bikin saran, coba lagi bentar." });
+        // /muat <makanan> — simulator
+        if (name === "muat") {
+          const query = String(opts.makanan || "").trim();
+          if (!query) {
+            await editOriginal(token, { content: "🧮 Format: /muat makanan:<nama>. Contoh: /muat makanan:martabak 2 potong" });
+            return;
           }
-        });
-        return deferred();
-      }
+          const [food, entries, goals] = await Promise.all([
+            extractFood({ text: query }),
+            getRecentEntries(userId),
+            getGoals(userId),
+          ]);
+          const result = simulateFit(goals, consumedToday(entries), food);
+          await editOriginal(token, { content: formatFit(result) });
+          return;
+        }
 
-      // /catat <makanan> — teks bebas → AI → konfirmasi (AI lambat → defer)
-      if (name === "catat") {
-        const query = String(opts.makanan || "").trim();
-        if (!query) return message("Format: /catat makanan:<apa yang kamu makan>");
-        const token: string = interaction.token;
-        after(async () => {
-          try {
-            // Makanan langganan? Pakai library, skip Gemini.
-            const norm = query.toLowerCase();
-            const mealsSnap = await adminDb.collection("meals").where("userId", "==", userId).get();
-            const fav = mealsSnap.docs
-              .map((d) => d.data())
-              .find((m) => {
-                const nm = String(m.name).trim().toLowerCase();
-                const withResto = m.restaurant ? `${nm} ${String(m.restaurant).trim().toLowerCase()}` : nm;
-                return nm === norm || withResto === norm;
-              });
-            const food: ExtractedFood = fav
-              ? {
-                  name: fav.restaurant ? `${fav.name} (${fav.restaurant})` : fav.name,
-                  kcal: fav.kcal,
-                  protein_g: fav.protein_g,
-                  carbs_g: fav.carbs_g,
-                  fat_g: fav.fat_g,
-                  portion: fav.portion || "1 porsi",
-                  meal: currentMealWIB(),
-                  confidence: 1,
-                  ...(fav.items && fav.items.length > 0 && { items: fav.items }),
-                }
-              : await extractFood({ text: query });
-            const pendingId = await createPending(userId, food, "chat");
-            await editOriginal(token, { content: foodConfirmText(food), components: confirmButtons(pendingId) });
-          } catch (e) {
-            console.error("Discord catat error:", e);
-            await editOriginal(token, { content: "❌ Gagal proses. Coba sebut makanan + porsinya." });
+        // /saran — AI saranin menu
+        if (name === "saran") {
+          const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
+          const consumed = consumedToday(entries);
+          const suggestions = await suggestMeals(goals, consumed);
+          await editOriginal(token, { content: formatSuggestions(suggestions, goals.kcalTarget - consumed.kcal) });
+          return;
+        }
+
+        // /catat <makanan> — teks bebas → AI (atau library) → konfirmasi
+        if (name === "catat") {
+          const query = String(opts.makanan || "").trim();
+          if (!query) {
+            await editOriginal(token, { content: "Format: /catat makanan:<apa yang kamu makan>" });
+            return;
           }
-        });
-        return deferred();
-      }
-
-      // /scan <foto> — foto makanan/label → AI → konfirmasi (AI lambat → defer)
-      if (name === "scan") {
-        const attId = (interaction.data?.options || []).find((o: { name: string }) => o.name === "foto")?.value;
-        const attachment = interaction.data?.resolved?.attachments?.[attId];
-        if (!attachment?.url) return message("❌ Gak ada foto yang dikirim.");
-        const token: string = interaction.token;
-        after(async () => {
-          try {
-            const imgRes = await fetch(attachment.url);
-            const base64 = Buffer.from(await imgRes.arrayBuffer()).toString("base64");
-            const food = await extractFood({
-              imageBase64: base64,
-              mimeType: attachment.content_type || "image/jpeg",
+          // Makanan langganan? Pakai library, skip Gemini.
+          const norm = query.toLowerCase();
+          const mealsSnap = await adminDb.collection("meals").where("userId", "==", userId).get();
+          const fav = mealsSnap.docs
+            .map((d) => d.data())
+            .find((m) => {
+              const nm = String(m.name).trim().toLowerCase();
+              const withResto = m.restaurant ? `${nm} ${String(m.restaurant).trim().toLowerCase()}` : nm;
+              return nm === norm || withResto === norm;
             });
-            const pendingId = await createPending(userId, food, "scan");
-            await editOriginal(token, { content: foodConfirmText(food), components: confirmButtons(pendingId) });
-          } catch (e) {
-            console.error("Discord scan error:", e);
-            await editOriginal(token, { content: "❌ Gagal baca foto. Pastiin makanannya keliatan jelas." });
-          }
-        });
-        return deferred();
-      }
+          const food: ExtractedFood = fav
+            ? {
+                name: fav.restaurant ? `${fav.name} (${fav.restaurant})` : fav.name,
+                kcal: fav.kcal,
+                protein_g: fav.protein_g,
+                carbs_g: fav.carbs_g,
+                fat_g: fav.fat_g,
+                portion: fav.portion || "1 porsi",
+                meal: currentMealWIB(),
+                confidence: 1,
+                ...(fav.items && fav.items.length > 0 && { items: fav.items }),
+              }
+            : await extractFood({ text: query });
+          const pendingId = await createPending(userId, food, "chat");
+          await editOriginal(token, { content: foodConfirmText(food), components: confirmButtons(pendingId) });
+          return;
+        }
 
-      return message("Command gak dikenal.");
-    } catch (e) {
-      console.error("Discord command error:", e);
-      return message("❌ Ada error pas memproses. Coba lagi ya.");
-    }
+        // /scan <foto> — foto makanan/label → AI → konfirmasi
+        if (name === "scan") {
+          const attId = (interaction.data?.options || []).find((o: { name: string }) => o.name === "foto")?.value;
+          const attachment = interaction.data?.resolved?.attachments?.[attId];
+          if (!attachment?.url) {
+            await editOriginal(token, { content: "❌ Gak ada foto yang dikirim." });
+            return;
+          }
+          const imgRes = await fetch(attachment.url);
+          const base64 = Buffer.from(await imgRes.arrayBuffer()).toString("base64");
+          const food = await extractFood({ imageBase64: base64, mimeType: attachment.content_type || "image/jpeg" });
+          const pendingId = await createPending(userId, food, "scan");
+          await editOriginal(token, { content: foodConfirmText(food), components: confirmButtons(pendingId) });
+          return;
+        }
+
+        await editOriginal(token, { content: "Command gak dikenal." });
+      } catch (e) {
+        console.error("Discord command error:", e);
+        await editOriginal(token, { content: "❌ Ada error pas memproses. Coba lagi ya." });
+      }
+    });
+
+    return deferred();
   }
 
   return NextResponse.json({ type: 4, data: { content: "OK", flags: EPHEMERAL } });
