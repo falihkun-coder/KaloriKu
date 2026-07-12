@@ -86,6 +86,11 @@ function pendingConfirmText(food: ExtractedFood): string {
   let msg = `🍽️ ${food.name} (${food.portion})\n`;
   msg += `${MEAL_LABELS[food.meal]} · yakin ${confidencePct(food.confidence)}\n\n`;
   msg += `🔥 ${fmtNum(food.kcal)} kkal\n`;
+  if (food.items && food.items.length > 0) {
+    for (const it of food.items) {
+      msg += `  • ${it.name} — ${fmtNum(it.kcal)} kkal\n`;
+    }
+  }
   msg += `💪 Protein ${fmtNum(food.protein_g)} g · 🍚 Karbo ${fmtNum(food.carbs_g)} g · 🥑 Lemak ${fmtNum(food.fat_g)} g\n\n`;
   msg += `Simpan?`;
   return msg;
@@ -162,6 +167,7 @@ export async function POST(request: Request) {
           meal: food.meal,
           source: pending.source || "chat",
           confidence: food.confidence,
+          ...(food.items && food.items.length > 0 && { items: food.items }),
           createdAt: new Date().toISOString(),
         });
         await pendingRef.delete();
@@ -425,6 +431,7 @@ export async function POST(request: Request) {
             portion: fav.portion || "1 porsi",
             meal: currentMealWIB(),
             confidence: 1,
+            ...(fav.items && fav.items.length > 0 && { items: fav.items }),
           };
           await sendConfirm(chatId, userId, food, "chat", procMsgId);
           return NextResponse.json({ success: true });

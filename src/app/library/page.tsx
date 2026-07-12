@@ -4,7 +4,7 @@ import { useState } from "react";
 import { BookMarked, Plus, Trash2, UtensilsCrossed, Store, Loader2, Sparkles, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
-import { SavedMeal, fmtNum, mealLabel } from "@/lib/calculations";
+import { SavedMeal, MealItem, fmtNum, mealLabel } from "@/lib/calculations";
 import { ExtractedFood } from "@/lib/ai-extract";
 import { auth } from "@/lib/firebase";
 import { toast } from "sonner";
@@ -18,6 +18,7 @@ type RestoDraft = {
   fat: string;
   portion: string;
   confidence: number;
+  items?: MealItem[];
 };
 
 function initials(name: string) {
@@ -68,6 +69,7 @@ export default function LibraryPage() {
         fat: String(food.fat_g),
         portion: food.portion || "1 porsi",
         confidence: food.confidence,
+        items: food.items,
       });
     } catch (err) {
       console.error(err);
@@ -89,6 +91,7 @@ export default function LibraryPage() {
         carbs_g: Number(draft.carbs) || 0,
         fat_g: Number(draft.fat) || 0,
         portion: draft.portion,
+        ...(draft.items && draft.items.length > 0 && { items: draft.items }),
       });
       toast.success(`${draft.name} (${draft.restaurant}) masuk favorit! ⭐`);
       setDraft(null);
@@ -187,6 +190,29 @@ export default function LibraryPage() {
                 <X size={14} />
               </button>
             </div>
+
+            {/* Breakdown per item — bukti AI reference menu yang bener */}
+            {draft.items && draft.items.length > 0 && (
+              <div className="rounded-[12px] bg-card border border-border px-3.5 py-3">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                  Breakdown paket
+                </p>
+                <div className="space-y-1.5">
+                  {draft.items.map((it, i) => (
+                    <div key={i} className="flex items-center justify-between gap-2 text-[13px]">
+                      <span className="text-foreground">{it.name}</span>
+                      <span className="font-semibold tabular-nums shrink-0">{fmtNum(it.kcal)} kkal</span>
+                    </div>
+                  ))}
+                  <div className="flex items-center justify-between gap-2 text-[13px] pt-1.5 border-t border-line-soft">
+                    <span className="font-semibold">Total</span>
+                    <span className="font-bold tabular-nums">
+                      {fmtNum(draft.items.reduce((s, it) => s + it.kcal, 0))} kkal
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-4 gap-2">
               {(

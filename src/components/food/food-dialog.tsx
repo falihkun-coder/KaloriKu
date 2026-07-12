@@ -140,6 +140,7 @@ export function FoodDialog() {
           ...payload,
           source: editingEntry?.source || "manual",
           ...(editingEntry?.confidence != null && { confidence: editingEntry.confidence }),
+          ...(editingEntry?.items && editingEntry.items.length > 0 && { items: editingEntry.items }),
         });
         if (saveFav) {
           await addMeal({
@@ -185,11 +186,23 @@ export function FoodDialog() {
     <form onSubmit={handleSubmit} className="space-y-5 mt-4">
       {/* Chip estimasi AI — konfirmasi/edit wajib sebelum simpan (brief §08) */}
       {isDraft && editingEntry?.confidence != null && (
-        <div className="flex items-center gap-2 rounded-[12px] bg-white/15 border border-white/25 px-3 py-2">
-          <span className="text-[13px]">✨</span>
-          <p className="text-[12px] text-white/90 font-medium">
-            Estimasi AI (yakin {Math.round(editingEntry.confidence * 100)}%) — cek & koreksi dulu sebelum simpan.
-          </p>
+        <div className="rounded-[12px] bg-white/15 border border-white/25 px-3 py-2 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[13px]">✨</span>
+            <p className="text-[12px] text-white/90 font-medium">
+              Estimasi AI (yakin {Math.round(editingEntry.confidence * 100)}%) — cek & koreksi dulu sebelum simpan.
+            </p>
+          </div>
+          {editingEntry.items && editingEntry.items.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-white/20">
+              {editingEntry.items.map((it, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 text-[12px] text-white/85">
+                  <span>{it.name}</span>
+                  <span className="font-semibold tabular-nums shrink-0">{it.kcal} kkal</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* Chips favorit — 1-tap isi form dari library */}

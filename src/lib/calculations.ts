@@ -4,6 +4,12 @@
 export type MealType = "sarapan" | "siang" | "malam" | "snack";
 export type EntrySource = "manual" | "chat" | "scan";
 
+/** Komponen paket/combo (mis. "2 ayam goreng" 480 kkal) — bukti referensi AI. */
+export type MealItem = {
+  name: string;
+  kcal: number;
+};
+
 export type FoodEntry = {
   id: string;
   userId?: string;
@@ -17,6 +23,8 @@ export type FoodEntry = {
   source: EntrySource;
   confidence?: number;
   photoUrl?: string;
+  /** Breakdown per item kalau ini paket/combo */
+  items?: MealItem[];
   createdAt: string; // ISO string
 };
 
@@ -57,6 +65,8 @@ export type SavedMeal = {
   carbs_g: number;
   fat_g: number;
   portion: string;
+  /** Breakdown per item kalau ini paket/combo */
+  items?: MealItem[];
   useCount?: number;
 };
 

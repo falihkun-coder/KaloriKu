@@ -284,6 +284,7 @@ export const useStore = create<AppState>((set, get) => ({
         return "snack" as const;
       })(),
       source: "manual",
+      ...(meal.items && meal.items.length > 0 && { items: meal.items }),
       createdAt: new Date().toISOString(),
     });
     // useCount buat urutan chips favorit — gagal pun gak masalah

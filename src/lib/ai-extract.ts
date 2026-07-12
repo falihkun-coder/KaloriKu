@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { MealType } from "@/lib/calculations";
+import { MealType, MealItem } from "@/lib/calculations";
 
 export type ExtractedFood = {
   name: string;
@@ -11,6 +11,8 @@ export type ExtractedFood = {
   meal: MealType;
   /** 0–1: label nutrisi ≈ tinggi, estimasi foto/teks ≈ lebih rendah */
   confidence: number;
+  /** Breakdown per item untuk paket/combo — biar user bisa cek referensi AI */
+  items?: MealItem[];
 };
 
 export type ExtractInput = {
@@ -68,7 +70,10 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     kcal (number), protein_g (number), carbs_g (number), fat_g (number),
     portion (string, e.g. "1 porsi", "2 potong", "300 ml"),
     meal (one of: "sarapan", "siang", "malam", "snack"),
-    confidence (number 0-1).
+    confidence (number 0-1),
+    items (OPTIONAL array — ONLY when the food is a combo/paket/set or multiple foods:
+      [{ "name": string in Indonesian INCLUDING quantity e.g. "2 ayam goreng" / "nasi large" / "cola medium", "kcal": number }].
+      The per-item kcal MUST sum up to the total kcal. Omit items entirely for a single simple food.)
   `;
 
   const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [{ text: prompt }];
@@ -85,14 +90,32 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
   const parsed = JSON.parse(cleanJson);
 
   const meal: MealType = VALID_MEALS.includes(parsed.meal) ? parsed.meal : currentMealWIB();
+
+  // Breakdown per item: total selalu = jumlah item biar angkanya bisa dicek user
+  let items: MealItem[] | undefined;
+  if (Array.isArray(parsed.items) && parsed.items.length > 1) {
+    items = parsed.items
+      .map((it: { name?: unknown; kcal?: unknown }) => ({
+        name: String(it.name || "Item").slice(0, 60),
+        kcal: Math.max(0, Math.round(Number(it.kcal) || 0)),
+      }))
+      .filter((it: MealItem) => it.kcal > 0)
+      .slice(0, 12);
+    if (items && items.length < 2) items = undefined;
+  }
+  const totalKcal = items
+    ? items.reduce((s, it) => s + it.kcal, 0)
+    : Math.max(0, Math.round(Number(parsed.kcal) || 0));
+
   return {
     name: String(parsed.name || "Makanan").slice(0, 80),
-    kcal: Math.max(0, Math.round(Number(parsed.kcal) || 0)),
+    kcal: totalKcal,
     protein_g: Math.max(0, Math.round((Number(parsed.protein_g) || 0) * 10) / 10),
     carbs_g: Math.max(0, Math.round((Number(parsed.carbs_g) || 0) * 10) / 10),
     fat_g: Math.max(0, Math.round((Number(parsed.fat_g) || 0) * 10) / 10),
     portion: String(parsed.portion || "1 porsi").slice(0, 40),
     meal,
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
+    ...(items && { items }),
   };
 }
