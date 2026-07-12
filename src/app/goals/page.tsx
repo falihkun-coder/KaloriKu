@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Target, LogOut, Save, Send, Check, Copy } from "lucide-react";
+import { Target, LogOut, Save, Send, Check, Copy, MessageSquare } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import { Goals } from "@/lib/calculations";
@@ -41,11 +41,16 @@ export default function GoalsPage() {
   const updateGoals = useStore((state) => state.updateGoals);
   const profile = useStore((state) => state.profile);
   const createTelegramLink = useStore((state) => state.createTelegramLink);
+  const createDiscordLink = useStore((state) => state.createDiscordLink);
   const { user } = useAuth();
 
   const [linkCode, setLinkCode] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
   const isTelegramLinked = !!profile.telegramChatId;
+
+  const [discordCode, setDiscordCode] = useState<string | null>(null);
+  const [discordLinking, setDiscordLinking] = useState(false);
+  const isDiscordLinked = !!profile.discordUserId;
 
   const handleTelegramLink = async () => {
     setLinking(true);
@@ -59,6 +64,17 @@ export default function GoalsPage() {
       toast.error("Gagal bikin kode link");
     } finally {
       setLinking(false);
+    }
+  };
+
+  const handleDiscordLink = async () => {
+    setDiscordLinking(true);
+    try {
+      setDiscordCode(await createDiscordLink());
+    } catch {
+      toast.error("Gagal bikin kode link");
+    } finally {
+      setDiscordLinking(false);
     }
   };
 
@@ -219,6 +235,54 @@ export default function GoalsPage() {
                   className="flex items-center gap-2 font-mono font-bold text-sm text-foreground hover:text-primary transition-colors"
                 >
                   /start {linkCode} <Copy size={13} />
+                </button>
+                <p className="text-[11px] text-muted-foreground">Kode berlaku 15 menit, sekali pakai.</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Bot Discord */}
+      <div className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="font-heading font-bold tracking-tight text-[15px]">Bot Discord</p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              Slash command di server Discord — <span className="font-mono">/catat</span>,{" "}
+              <span className="font-mono">/scan</span>, <span className="font-mono">/today</span>.
+            </p>
+          </div>
+          {isDiscordLinked && (
+            <span className="flex items-center gap-1 text-[12px] font-bold text-positive bg-positive/10 px-2.5 py-1 rounded-full shrink-0">
+              <Check size={13} /> Terhubung
+            </span>
+          )}
+        </div>
+
+        {!isDiscordLinked && (
+          <>
+            <button
+              onClick={handleDiscordLink}
+              disabled={discordLinking}
+              className="flex items-center justify-center gap-2 w-full h-11 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-50"
+            >
+              <MessageSquare size={16} />
+              {discordLinking ? "Bikin kode..." : "Hubungkan Discord"}
+            </button>
+            {discordCode && (
+              <div className="rounded-[14px] bg-muted p-3.5 space-y-1.5">
+                <p className="text-[12px] text-muted-foreground">
+                  Jalanin slash command ini di server yang ada bot KaloriKu-nya:
+                </p>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(`/link kode:${discordCode}`);
+                    toast.success("Kode kesalin!");
+                  }}
+                  className="flex items-center gap-2 font-mono font-bold text-sm text-foreground hover:text-primary transition-colors"
+                >
+                  /link kode:{discordCode} <Copy size={13} />
                 </button>
                 <p className="text-[11px] text-muted-foreground">Kode berlaku 15 menit, sekali pakai.</p>
               </div>

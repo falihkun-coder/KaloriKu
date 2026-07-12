@@ -36,9 +36,12 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
-    // Kode sekali-pakai link Telegram: client cuma boleh bikin punya sendiri;
+    // Kode sekali-pakai link bot: client cuma boleh bikin punya sendiri;
     // dibaca/dihapus oleh webhook via Admin SDK (bypass rules).
     match /telegramLinks/{code} {
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+    }
+    match /discordLinks/{code} {
       allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
     }
   }

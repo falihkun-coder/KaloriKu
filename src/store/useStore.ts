@@ -18,6 +18,7 @@ export type UserProfile = {
   name?: string;
   email?: string;
   telegramChatId?: number;
+  discordUserId?: string;
   tz?: string;
 };
 
@@ -54,6 +55,8 @@ interface AppState {
   logMeal: (meal: SavedMeal) => Promise<void>;
   /** Bikin kode sekali-pakai buat link akun Telegram, return kodenya. */
   createTelegramLink: () => Promise<string>;
+  /** Bikin kode sekali-pakai buat link akun Discord, return kodenya. */
+  createDiscordLink: () => Promise<string>;
 }
 
 // Entries selalu urut terbaru dulu, konsisten dengan fetchData.
@@ -302,14 +305,24 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   createTelegramLink: async () => {
-    const state = get();
-    if (!state.userId) throw new Error("User not authenticated");
+    const uid = get().userId;
+    if (!uid) throw new Error("User not authenticated");
+    return createLinkCode("telegramLinks", uid);
+  },
 
-    const code = Array.from(crypto.getRandomValues(new Uint8Array(6)))
-      .map((b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31])
-      .join("");
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-    await setDoc(doc(db, "telegramLinks", code), { uid: state.userId, expiresAt });
-    return code;
+  createDiscordLink: async () => {
+    const uid = get().userId;
+    if (!uid) throw new Error("User not authenticated");
+    return createLinkCode("discordLinks", uid);
   },
 }));
+
+// Kode sekali-pakai (15 menit) untuk link akun bot — dipakai Telegram & Discord.
+async function createLinkCode(collectionName: string, uid: string): Promise<string> {
+  const code = Array.from(crypto.getRandomValues(new Uint8Array(6)))
+    .map((b) => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31])
+    .join("");
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  await setDoc(doc(db, collectionName, code), { uid, expiresAt });
+  return code;
+}
