@@ -24,3 +24,14 @@ exports.weeklySummary = onSchedule(
   { schedule: "0 19 * * 0", timeZone: "Asia/Jakarta", region: "us-central1" },
   () => callCron("/api/cron/weekly-summary")
 );
+
+// Keep-warm tiap 5 menit: jaga SSR instance tetap hidup biar Discord (deadline
+// 3 dtk) gak kena cold start. minInstances gak bisa dipakai (bentrok pinTags
+// rewrite Hosting), jadi ping ringan ini pengganti.
+exports.keepWarm = onSchedule(
+  { schedule: "*/5 * * * *", region: "us-central1" },
+  async () => {
+    const res = await fetch(`${APP_URL}/api/ping`);
+    console.log(`keep-warm -> ${res.status}`);
+  }
+);
