@@ -4,8 +4,8 @@ import Link from "next/link";
 import { Flame, ScanLine, Calculator, TrendingUp } from "lucide-react";
 import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
 
-export function HeroCard({ goals, consumed }: { goals: Goals; consumed: MacroTotals }) {
-  const r = remaining(goals, consumed);
+export function HeroCard({ goals, consumed, burned = 0 }: { goals: Goals; consumed: MacroTotals; burned?: number }) {
+  const r = remaining(goals, consumed, burned);
   const pct = Math.min(100, Math.max(0, r.pctUsed));
 
   return (
@@ -36,6 +36,7 @@ export function HeroCard({ goals, consumed }: { goals: Goals; consumed: MacroTot
 
         <p className="text-[13px] text-white/75 mt-2">
           {fmtNum(consumed.kcal)} dari target {fmtNum(goals.kcalTarget)} kkal
+          {burned > 0 && <span className="text-white/90 font-semibold"> +{fmtNum(burned)} dari olahraga 🔥</span>}
         </p>
 
         <div className="mt-4 h-2.5 rounded-full bg-white/20 overflow-hidden">

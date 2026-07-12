@@ -36,6 +36,8 @@ export type Goals = {
   fatTarget: number;
   weightTarget?: number;
   waterTargetMl?: number;
+  /** Olahraga nambah budget kalori (net kalori). Default true. */
+  exerciseAddsBudget?: boolean;
   activityLevel?: "rendah" | "sedang" | "tinggi";
 };
 
@@ -52,6 +54,44 @@ export type WaterLog = {
   ml: number;
   date: string; // YYYY-MM-DD (WIB)
 };
+
+export type ExerciseType = "kardio" | "beban" | "hiit" | "jalan" | "lainnya";
+
+/** Sesi olahraga — kkal terbakar nambah budget kalori (net kalori, brief §06). */
+export type ExerciseEntry = {
+  id: string;
+  userId?: string;
+  name: string;
+  type: ExerciseType;
+  durationMin: number;
+  kcalBurned: number;
+  avgHr?: number;
+  maxHr?: number;
+  source: EntrySource;
+  createdAt: string; // ISO string
+};
+
+export const EXERCISE_LABELS: Record<ExerciseType, string> = {
+  kardio: "Kardio",
+  beban: "Angkat beban",
+  hiit: "HIIT",
+  jalan: "Jalan / lari",
+  lainnya: "Lainnya",
+};
+
+export const EXERCISE_ORDER: ExerciseType[] = ["kardio", "beban", "hiit", "jalan", "lainnya"];
+
+export function exercisesForDay(exercises: ExerciseEntry[], dateKey: string): ExerciseEntry[] {
+  return exercises.filter((e) => dateKeyWIB(e.createdAt) === dateKey);
+}
+
+export function burnedOn(exercises: ExerciseEntry[], dateKey: string): number {
+  return exercisesForDay(exercises, dateKey).reduce((s, e) => s + (e.kcalBurned || 0), 0);
+}
+
+export function burnedToday(exercises: ExerciseEntry[]): number {
+  return burnedOn(exercises, dateKeyWIB());
+}
 
 /** Makanan favorit di library — 1-tap log tanpa AI (brief §7 ide 2, §11 mitigasi biaya). */
 export type SavedMeal = {
@@ -108,6 +148,7 @@ export const DEFAULT_GOALS: Goals = {
   carbsTarget: 250,
   fatTarget: 65,
   waterTargetMl: 2000,
+  exerciseAddsBudget: true,
   activityLevel: "sedang",
 };
 
@@ -164,21 +205,35 @@ export type Remaining = {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
-  /** persen target kalori yang sudah terpakai, 0–>100 */
+  /** persen budget kalori (target + terbakar) yang sudah terpakai, 0–>100 */
   pctUsed: number;
   over: boolean;
+  /** kkal terbakar yang dipakai memperluas budget (0 kalau toggle off) */
+  burned: number;
+  /** budget efektif = target + terbakar */
+  effectiveTarget: number;
 };
 
-export function remaining(goals: Goals, consumed: MacroTotals): Remaining {
-  const kcal = goals.kcalTarget - consumed.kcal;
+// burned = kkal olahraga yang nambah budget (caller yang decide sesuai
+// goals.exerciseAddsBudget). Net kalori: sisa = target − masuk + terbakar.
+export function remaining(goals: Goals, consumed: MacroTotals, burned = 0): Remaining {
+  const effectiveTarget = goals.kcalTarget + burned;
+  const kcal = effectiveTarget - consumed.kcal;
   return {
     kcal,
     protein_g: goals.proteinTarget - consumed.protein_g,
     carbs_g: goals.carbsTarget - consumed.carbs_g,
     fat_g: goals.fatTarget - consumed.fat_g,
-    pctUsed: goals.kcalTarget > 0 ? Math.round((consumed.kcal / goals.kcalTarget) * 100) : 0,
+    pctUsed: effectiveTarget > 0 ? Math.round((consumed.kcal / effectiveTarget) * 100) : 0,
     over: kcal < 0,
+    burned,
+    effectiveTarget,
   };
+}
+
+/** Helper: burned yang nambah budget sesuai preferensi user (0 kalau toggle off). */
+export function budgetBurned(goals: Goals, exercises: ExerciseEntry[], dateKey: string = dateKeyWIB()): number {
+  return goals.exerciseAddsBudget === false ? 0 : burnedOn(exercises, dateKey);
 }
 
 export type MealBreakdown = Record<MealType, MacroTotals>;

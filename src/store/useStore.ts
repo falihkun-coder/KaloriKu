@@ -12,7 +12,17 @@ import {
   deleteDoc,
   where,
 } from "firebase/firestore";
-import { FoodEntry, Goals, WeightLog, WaterLog, SavedMeal, DEFAULT_GOALS, dateKeyWIB, mealLabel } from "@/lib/calculations";
+import {
+  FoodEntry,
+  Goals,
+  WeightLog,
+  WaterLog,
+  SavedMeal,
+  ExerciseEntry,
+  DEFAULT_GOALS,
+  dateKeyWIB,
+  mealLabel,
+} from "@/lib/calculations";
 
 export type UserProfile = {
   name?: string;
@@ -29,6 +39,7 @@ interface AppState {
   weights: WeightLog[];
   waterLogs: WaterLog[];
   meals: SavedMeal[];
+  exercises: ExerciseEntry[];
   profile: UserProfile;
   isLoading: boolean;
 
@@ -39,6 +50,12 @@ interface AppState {
   openFoodDialog: (entry?: Partial<FoodEntry>) => void;
   closeFoodDialog: () => void;
 
+  // UI: dialog catat/edit olahraga (draft tanpa id → tambah dengan prefill)
+  exerciseDialogOpen: boolean;
+  editingExercise: Partial<ExerciseEntry> | null;
+  openExerciseDialog: (ex?: Partial<ExerciseEntry>) => void;
+  closeExerciseDialog: () => void;
+
   fetchData: (userId?: string) => Promise<void>;
   addEntry: (entry: Omit<FoodEntry, "id">) => Promise<void>;
   updateEntry: (id: string, entry: Partial<Omit<FoodEntry, "id">>) => Promise<void>;
@@ -46,6 +63,9 @@ interface AppState {
   updateGoals: (goals: Partial<Goals>) => Promise<void>;
   addWeight: (w: Omit<WeightLog, "id">) => Promise<void>;
   deleteWeight: (id: string) => Promise<void>;
+  addExercise: (ex: Omit<ExerciseEntry, "id">) => Promise<void>;
+  updateExercise: (id: string, ex: Partial<Omit<ExerciseEntry, "id">>) => Promise<void>;
+  deleteExercise: (id: string) => Promise<void>;
   /** Tambah air minum hari ini (ml). */
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
@@ -70,6 +90,7 @@ export const useStore = create<AppState>((set, get) => ({
   weights: [],
   waterLogs: [],
   meals: [],
+  exercises: [],
   profile: {},
   isLoading: false,
 
@@ -77,6 +98,11 @@ export const useStore = create<AppState>((set, get) => ({
   editingEntry: null,
   openFoodDialog: (entry) => set({ foodDialogOpen: true, editingEntry: entry ?? null }),
   closeFoodDialog: () => set({ foodDialogOpen: false, editingEntry: null }),
+
+  exerciseDialogOpen: false,
+  editingExercise: null,
+  openExerciseDialog: (ex) => set({ exerciseDialogOpen: true, editingExercise: ex ?? null }),
+  closeExerciseDialog: () => set({ exerciseDialogOpen: false, editingExercise: null }),
 
   fetchData: async (uid?: string) => {
     const currentUid = uid || get().userId;
@@ -88,15 +114,17 @@ export const useStore = create<AppState>((set, get) => ({
       const weightQuery = query(collection(db, "weights"), where("userId", "==", currentUid));
       const waterQuery = query(collection(db, "waterLogs"), where("userId", "==", currentUid));
       const mealQuery = query(collection(db, "meals"), where("userId", "==", currentUid));
+      const exerciseQuery = query(collection(db, "exercises"), where("userId", "==", currentUid));
       const goalsDocRef = doc(db, "goals", currentUid);
       const userDocRef = doc(db, "users", currentUid);
 
-      const [entrySnapshot, weightSnapshot, waterSnapshot, mealSnapshot, goalsDocSnap, userDocSnap] =
+      const [entrySnapshot, weightSnapshot, waterSnapshot, mealSnapshot, exerciseSnapshot, goalsDocSnap, userDocSnap] =
         await Promise.all([
           getDocs(entryQuery),
           getDocs(weightQuery),
           getDocs(waterQuery),
           getDocs(mealQuery),
+          getDocs(exerciseQuery),
           getDoc(goalsDocRef),
           getDoc(userDocRef),
         ]);
@@ -113,6 +141,10 @@ export const useStore = create<AppState>((set, get) => ({
 
       const meals = (mealSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[]).sort(
         (a, b) => (b.useCount || 0) - (a.useCount || 0)
+      );
+
+      const exercises = (exerciseSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[]).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
 
       let goals: Goals = { ...DEFAULT_GOALS, userId: currentUid };
@@ -134,7 +166,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
       await setDoc(userDocRef, profile, { merge: true });
 
-      set({ entries, weights, waterLogs, meals, goals, profile, isLoading: false });
+      set({ entries, weights, waterLogs, meals, exercises, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -219,6 +251,47 @@ export const useStore = create<AppState>((set, get) => ({
       set({ weights: state.weights.filter((w) => w.id !== id) });
     } catch (error) {
       console.error("Error deleting weight:", error);
+      throw error;
+    }
+  },
+
+  addExercise: async (ex) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+      const newEx = { ...ex, userId: state.userId };
+      const docRef = await addDoc(collection(db, "exercises"), newEx);
+      const exercises = [{ id: docRef.id, ...newEx } as ExerciseEntry, ...state.exercises].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      set({ exercises });
+    } catch (error) {
+      console.error("Error adding exercise:", error);
+      throw error;
+    }
+  },
+
+  updateExercise: async (id, ex) => {
+    try {
+      const state = get();
+      await updateDoc(doc(db, "exercises", id), ex);
+      const exercises = state.exercises
+        .map((e) => (e.id === id ? { ...e, ...ex, id } : e))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      set({ exercises });
+    } catch (error) {
+      console.error("Error updating exercise:", error);
+      throw error;
+    }
+  },
+
+  deleteExercise: async (id) => {
+    try {
+      const state = get();
+      await deleteDoc(doc(db, "exercises", id));
+      set({ exercises: state.exercises.filter((e) => e.id !== id) });
+    } catch (error) {
+      console.error("Error deleting exercise:", error);
       throw error;
     }
   },

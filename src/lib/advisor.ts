@@ -12,11 +12,11 @@ export type MealSuggestion = {
 
 // Saran menu dari sisa kalori/macro hari ini (brief §07 /api/advisor) —
 // shared web (card dashboard) & Telegram (/saran) biar sarannya konsisten.
-export async function suggestMeals(goals: Goals, consumedToday: MacroTotals): Promise<MealSuggestion[]> {
+export async function suggestMeals(goals: Goals, consumedToday: MacroTotals, burned = 0): Promise<MealSuggestion[]> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
-  const r = remaining(goals, consumedToday);
+  const r = remaining(goals, consumedToday, burned);
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 

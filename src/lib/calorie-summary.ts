@@ -1,9 +1,12 @@
 import {
   FoodEntry,
+  ExerciseEntry,
   Goals,
   WeightLog,
   MEAL_LABELS,
   MEAL_ORDER,
+  budgetBurned,
+  burnedOn,
   consumedOn,
   dateKeyWIB,
   entriesForDay,
@@ -16,10 +19,17 @@ import {
 
 // Ringkasan harian format Telegram — dipakai webhook bot (/today) dan
 // nanti cron daily-summary (S3). Satu sumber biar angka web = angka bot.
-export function formatDailySummary(entries: FoodEntry[], goals: Goals, dateKey: string = dateKeyWIB()): string {
+export function formatDailySummary(
+  entries: FoodEntry[],
+  goals: Goals,
+  dateKey: string = dateKeyWIB(),
+  exercises: ExerciseEntry[] = []
+): string {
   const dayEntries = entriesForDay(entries, dateKey);
   const consumed = consumedOn(entries, dateKey);
-  const r = remaining(goals, consumed);
+  const burned = budgetBurned(goals, exercises, dateKey);
+  const burnedRaw = burnedOn(exercises, dateKey);
+  const r = remaining(goals, consumed, burned);
   const breakdown = mealBreakdown(dayEntries);
   const streakDays = streak(entries, dateKey);
 
@@ -31,7 +41,10 @@ export function formatDailySummary(entries: FoodEntry[], goals: Goals, dateKey: 
   });
 
   let msg = `🍽️ Ringkasan ${dateLabel}\n\n`;
-  msg += `🔥 Kalori: ${fmtNum(consumed.kcal)} / ${fmtNum(goals.kcalTarget)} kkal (${r.pctUsed}%)\n`;
+  msg += `🔥 Kalori masuk: ${fmtNum(consumed.kcal)} / ${fmtNum(goals.kcalTarget)} kkal (${r.pctUsed}%)\n`;
+  if (burnedRaw > 0) {
+    msg += `💪 Olahraga: −${fmtNum(burnedRaw)} kkal${burned > 0 ? " (nambah budget)" : ""}\n`;
+  }
   msg += r.over
     ? `⚠️ Lewat target ${fmtNum(Math.abs(r.kcal))} kkal\n`
     : `✅ Sisa ${fmtNum(r.kcal)} kkal\n`;
@@ -61,13 +74,21 @@ export function formatWeeklySummary(
   entries: FoodEntry[],
   goals: Goals,
   weights: WeightLog[] = [],
-  today: string = dateKeyWIB()
+  today: string = dateKeyWIB(),
+  exercises: ExerciseEntry[] = []
 ): string {
   let totalKcal = 0;
   let daysLogged = 0;
   let daysOver = 0;
+  let totalBurned = 0;
+  let activeDays = 0;
   for (let i = 6; i >= 0; i--) {
     const day = shiftDateKey(today, -i);
+    const dayBurned = burnedOn(exercises, day);
+    if (dayBurned > 0) {
+      totalBurned += dayBurned;
+      activeDays++;
+    }
     const dayEntries = entriesForDay(entries, day);
     if (dayEntries.length === 0) continue;
     const kcal = consumedOn(entries, day).kcal;
@@ -92,6 +113,9 @@ export function formatWeeklySummary(
         : `📈 Total surplus: ${fmtNum(balance)} kkal\n`;
   } else {
     msg += `Belum ada makan tercatat minggu ini — gas mulai lagi besok! 💪\n`;
+  }
+  if (activeDays > 0) {
+    msg += `💪 Olahraga: ${activeDays} hari aktif · ${fmtNum(totalBurned)} kkal kebakar\n`;
   }
 
   // Perubahan berat dalam ±7 hari kalau ada datanya

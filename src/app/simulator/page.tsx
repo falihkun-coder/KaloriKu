@@ -5,7 +5,7 @@ import { Calculator, Loader2, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
-import { consumedToday, fmtNum } from "@/lib/calculations";
+import { consumedToday, budgetBurned, fmtNum } from "@/lib/calculations";
 import { simulateFit, FitResult } from "@/lib/simulate-fit";
 import { ExtractedFood } from "@/lib/ai-extract";
 import { toast } from "sonner";
@@ -20,6 +20,7 @@ const VERDICT_STYLE = {
 export default function SimulatorPage() {
   const entries = useStore((state) => state.entries);
   const goals = useStore((state) => state.goals);
+  const exercises = useStore((state) => state.exercises);
   const openFoodDialog = useStore((state) => state.openFoodDialog);
 
   const [query, setQuery] = useState("");
@@ -27,7 +28,8 @@ export default function SimulatorPage() {
   const [result, setResult] = useState<(FitResult & { food?: ExtractedFood }) | null>(null);
 
   const consumed = consumedToday(entries);
-  const sisa = goals.kcalTarget - consumed.kcal;
+  const burned = budgetBurned(goals, exercises);
+  const sisa = goals.kcalTarget + burned - consumed.kcal;
 
   const handleSimulate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +45,7 @@ export default function SimulatorPage() {
       });
       if (!res.ok) throw new Error(`scan failed: ${res.status}`);
       const { food } = (await res.json()) as { food: ExtractedFood };
-      setResult({ ...simulateFit(goals, consumed, food), food });
+      setResult({ ...simulateFit(goals, consumed, food, burned), food });
     } catch (err) {
       console.error(err);
       toast.error("Gagal estimasi makanan — coba tulis lebih spesifik");

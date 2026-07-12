@@ -88,6 +88,7 @@ export default function GoalsPage() {
     waterTargetMl: "",
   });
   const [activity, setActivity] = useState<Goals["activityLevel"]>("sedang");
+  const [exerciseAddsBudget, setExerciseAddsBudget] = useState(true);
 
   useEffect(() => {
     setForm({
@@ -99,6 +100,7 @@ export default function GoalsPage() {
       waterTargetMl: String(goals.waterTargetMl ?? 2000),
     });
     setActivity(goals.activityLevel || "sedang");
+    setExerciseAddsBudget(goals.exerciseAddsBudget !== false);
   }, [goals]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -112,6 +114,7 @@ export default function GoalsPage() {
         fatTarget: Number(form.fatTarget) || 0,
         ...(form.weightTarget ? { weightTarget: Number(form.weightTarget) } : {}),
         waterTargetMl: Number(form.waterTargetMl) || 2000,
+        exerciseAddsBudget,
         activityLevel: activity,
       });
       toast.success("Goals tersimpan!");
@@ -182,6 +185,33 @@ export default function GoalsPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Toggle net kalori */}
+        <div className="flex items-center justify-between gap-3 rounded-[14px] border border-border bg-background p-3.5">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold">Olahraga nambah budget kalori</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              Kalori yang kebakar bikin sisa kalorimu nambah (net kalori).
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={exerciseAddsBudget}
+            onClick={() => setExerciseAddsBudget(!exerciseAddsBudget)}
+            className={cn(
+              "relative h-6 w-11 rounded-full transition-colors shrink-0",
+              exerciseAddsBudget ? "bg-primary" : "bg-muted-foreground/30"
+            )}
+          >
+            <span
+              className={cn(
+                "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all",
+                exerciseAddsBudget ? "left-[22px]" : "left-0.5"
+              )}
+            />
+          </button>
         </div>
 
         <button

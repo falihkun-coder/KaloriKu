@@ -28,8 +28,14 @@ export type FitResult = {
 };
 
 // Satu sumber vonis "muat gak?" — dipakai web simulator dan bot Telegram
-// biar keduanya menghakimi dengan cara yang sama persis.
-export function simulateFit(goals: Goals, consumedToday: MacroTotals, candidate: FitCandidate): FitResult {
+// biar keduanya menghakimi dengan cara yang sama persis. burned = kkal
+// olahraga yang nambah budget (net kalori).
+export function simulateFit(
+  goals: Goals,
+  consumedToday: MacroTotals,
+  candidate: FitCandidate,
+  burned = 0
+): FitResult {
   const c = {
     kcal: Math.max(0, Number(candidate.kcal) || 0),
     protein_g: Math.max(0, Number(candidate.protein_g) || 0),
@@ -37,10 +43,10 @@ export function simulateFit(goals: Goals, consumedToday: MacroTotals, candidate:
     fat_g: Math.max(0, Number(candidate.fat_g) || 0),
   };
 
-  const before = remaining(goals, consumedToday);
+  const before = remaining(goals, consumedToday, burned);
   const afterKcal = before.kcal - c.kcal;
   const totalAfter = consumedToday.kcal + c.kcal;
-  const pctAfter = goals.kcalTarget > 0 ? Math.round((totalAfter / goals.kcalTarget) * 100) : 0;
+  const pctAfter = before.effectiveTarget > 0 ? Math.round((totalAfter / before.effectiveTarget) * 100) : 0;
 
   const macroOver: string[] = [];
   if (goals.proteinTarget > 0 && consumedToday.protein_g + c.protein_g > goals.proteinTarget) macroOver.push("protein");

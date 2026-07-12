@@ -6,6 +6,7 @@ import { simulateFit, formatFit } from "@/lib/simulate-fit";
 import { suggestMeals, formatSuggestions } from "@/lib/advisor";
 import {
   FoodEntry,
+  ExerciseEntry,
   Goals,
   WaterLog,
   SavedMeal,
@@ -14,11 +15,13 @@ import {
   DEFAULT_WATER_TARGET_ML,
   MEAL_LABELS,
   consumedToday,
+  budgetBurned,
   fmtNum,
   shiftDateKey,
   dateKeyWIB,
   waterOn,
 } from "@/lib/calculations";
+import { estimateExercise } from "@/lib/exercise-extract";
 
 function currentMealWIB(): MealType {
   const hour = Number(
@@ -76,6 +79,16 @@ async function getRecentEntries(userId: string): Promise<FoodEntry[]> {
 async function getGoals(userId: string): Promise<Goals> {
   const doc = await adminDb.collection("goals").doc(userId).get();
   return doc.exists ? { ...DEFAULT_GOALS, ...(doc.data() as Goals) } : DEFAULT_GOALS;
+}
+
+async function getRecentExercises(userId: string): Promise<ExerciseEntry[]> {
+  const since = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+  const snap = await adminDb
+    .collection("exercises")
+    .where("userId", "==", userId)
+    .where("createdAt", ">=", since)
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[];
 }
 
 function confidencePct(c: number) {
@@ -257,15 +270,67 @@ export async function POST(request: Request) {
 
     // /today — ringkasan hari ini (angka sama persis dengan web via shared lib)
     if (text && /^\/(today|hariini|ringkasan)\b/i.test(text)) {
-      const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
-      await sendMessage(chatId, formatDailySummary(entries, goals));
+      const [entries, goals, exercises] = await Promise.all([
+        getRecentEntries(userId),
+        getGoals(userId),
+        getRecentExercises(userId),
+      ]);
+      await sendMessage(chatId, formatDailySummary(entries, goals, dateKeyWIB(), exercises));
       return NextResponse.json({ success: true });
     }
 
     // /kemarin — ringkasan kemarin
     if (text && /^\/kemarin\b/i.test(text)) {
-      const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
-      await sendMessage(chatId, formatDailySummary(entries, goals, shiftDateKey(dateKeyWIB(), -1)));
+      const [entries, goals, exercises] = await Promise.all([
+        getRecentEntries(userId),
+        getGoals(userId),
+        getRecentExercises(userId),
+      ]);
+      await sendMessage(chatId, formatDailySummary(entries, goals, shiftDateKey(dateKeyWIB(), -1), exercises));
+      return NextResponse.json({ success: true });
+    }
+
+    // /olahraga <deskripsi> — estimasi kkal terbakar → simpan langsung
+    if (text && /^\/olahraga\b/i.test(text)) {
+      const desc = text.replace(/^\/olahraga\s*/i, "").trim();
+      if (!desc) {
+        await sendMessage(chatId, "💪 Catat olahraga.\n\nFormat: /olahraga <apa + durasi>\nContoh: /olahraga lari 5km 30 menit");
+        return NextResponse.json({ success: true });
+      }
+      const procMsg = await sendMessage(chatId, "💪 Ngitung kalori kebakar...");
+      try {
+        const weightsSnap = await adminDb.collection("weights").where("userId", "==", userId).get();
+        const weights = weightsSnap.docs.map((d) => d.data()).sort((a, b) => (a.date < b.date ? -1 : 1));
+        const latestWeight = weights.length > 0 ? (weights[weights.length - 1].kg as number) : undefined;
+
+        const ex = await estimateExercise(desc, latestWeight);
+        await adminDb.collection("exercises").add({
+          userId,
+          name: ex.name,
+          type: ex.type,
+          durationMin: ex.durationMin,
+          kcalBurned: ex.kcalBurned,
+          source: "chat",
+          createdAt: new Date().toISOString(),
+        });
+
+        const [entries, goals, exercises] = await Promise.all([
+          getRecentEntries(userId),
+          getGoals(userId),
+          getRecentExercises(userId),
+        ]);
+        const burned = budgetBurned(goals, exercises);
+        const sisa = goals.kcalTarget + burned - consumedToday(entries).kcal;
+        let msg = `💪 Tercatat: ${ex.name} — ${fmtNum(ex.kcalBurned)} kkal terbakar`;
+        if (goals.exerciseAddsBudget !== false) {
+          msg += `\n\nSisa kalori sekarang: ${fmtNum(sisa)} kkal (udah termasuk olahraga)`;
+        }
+        msg += `\n\nSalah? Edit di web ya.`;
+        await editMessage(chatId, procMsg?.result?.message_id, msg);
+      } catch (e) {
+        console.error("olahraga error:", e);
+        await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal ngitung. Coba: /olahraga gym 1 jam");
+      }
       return NextResponse.json({ success: true });
     }
 

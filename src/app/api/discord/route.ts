@@ -2,11 +2,13 @@ import { NextResponse, after } from "next/server";
 import crypto from "crypto";
 import { adminDb } from "@/lib/firebase-admin";
 import { extractFood, ExtractedFood } from "@/lib/ai-extract";
+import { estimateExercise } from "@/lib/exercise-extract";
 import { formatDailySummary } from "@/lib/calorie-summary";
 import { simulateFit, formatFit } from "@/lib/simulate-fit";
 import { suggestMeals, formatSuggestions } from "@/lib/advisor";
 import {
   FoodEntry,
+  ExerciseEntry,
   Goals,
   WaterLog,
   DEFAULT_GOALS,
@@ -14,6 +16,7 @@ import {
   MEAL_LABELS,
   MealType,
   consumedToday,
+  budgetBurned,
   fmtNum,
   waterOn,
   dateKeyWIB,
@@ -77,6 +80,16 @@ async function getRecentEntries(userId: string): Promise<FoodEntry[]> {
 async function getGoals(userId: string): Promise<Goals> {
   const d = await adminDb.collection("goals").doc(userId).get();
   return d.exists ? { ...DEFAULT_GOALS, ...(d.data() as Goals) } : DEFAULT_GOALS;
+}
+
+async function getRecentExercises(userId: string): Promise<ExerciseEntry[]> {
+  const since = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+  const snap = await adminDb
+    .collection("exercises")
+    .where("userId", "==", userId)
+    .where("createdAt", ">=", since)
+    .get();
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[];
 }
 
 function currentMealWIB(): MealType {
@@ -229,8 +242,48 @@ export async function POST(request: Request) {
 
         // /today — ringkasan hari ini
         if (name === "today") {
-          const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
-          await editOriginal(token, { content: formatDailySummary(entries, goals) });
+          const [entries, goals, exercises] = await Promise.all([
+            getRecentEntries(userId),
+            getGoals(userId),
+            getRecentExercises(userId),
+          ]);
+          await editOriginal(token, { content: formatDailySummary(entries, goals, dateKeyWIB(), exercises) });
+          return;
+        }
+
+        // /olahraga <deskripsi> — estimasi kkal terbakar → simpan
+        if (name === "olahraga") {
+          const desc = String(opts.deskripsi || "").trim();
+          if (!desc) {
+            await editOriginal(token, { content: "💪 Format: /olahraga deskripsi:<apa + durasi>. Contoh: lari 5km 30 menit" });
+            return;
+          }
+          const weightsSnap = await adminDb.collection("weights").where("userId", "==", userId).get();
+          const weights = weightsSnap.docs.map((d) => d.data()).sort((a, b) => (a.date < b.date ? -1 : 1));
+          const latestWeight = weights.length > 0 ? (weights[weights.length - 1].kg as number) : undefined;
+
+          const ex = await estimateExercise(desc, latestWeight);
+          await adminDb.collection("exercises").add({
+            userId,
+            name: ex.name,
+            type: ex.type,
+            durationMin: ex.durationMin,
+            kcalBurned: ex.kcalBurned,
+            source: "chat",
+            createdAt: new Date().toISOString(),
+          });
+          const [entries, goals, exercises] = await Promise.all([
+            getRecentEntries(userId),
+            getGoals(userId),
+            getRecentExercises(userId),
+          ]);
+          const burned = budgetBurned(goals, exercises);
+          const sisa = goals.kcalTarget + burned - consumedToday(entries).kcal;
+          let msg = `💪 Tercatat: **${ex.name}** — ${fmtNum(ex.kcalBurned)} kkal terbakar`;
+          if (goals.exerciseAddsBudget !== false) {
+            msg += `\n\nSisa kalori sekarang: ${fmtNum(sisa)} kkal (udah termasuk olahraga)`;
+          }
+          await editOriginal(token, { content: msg });
           return;
         }
 

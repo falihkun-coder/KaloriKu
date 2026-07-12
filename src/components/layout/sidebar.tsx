@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp, BookMarked } from "lucide-react";
+import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp, BookMarked, Dumbbell } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -15,6 +15,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user } = useAuth();
   const openFoodDialog = useStore((state) => state.openFoodDialog);
+  const openExerciseDialog = useStore((state) => state.openExerciseDialog);
 
   const navItems = [
     { href: "/", icon: Home, label: "Beranda" },
@@ -77,13 +78,23 @@ export function Sidebar() {
           <ThemeToggle className="h-9 w-9" />
         </div>
 
-        <button
-          onClick={() => openFoodDialog()}
-          className="flex items-center justify-center gap-2 w-full bg-primary text-primary-foreground py-2.5 rounded-[12px] font-semibold text-sm shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98]"
-        >
-          <Plus size={18} />
-          <span>Catat makan</span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => openFoodDialog()}
+            className="flex items-center justify-center gap-2 flex-1 bg-primary text-primary-foreground py-2.5 rounded-[12px] font-semibold text-sm shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98]"
+          >
+            <Plus size={18} />
+            <span>Catat makan</span>
+          </button>
+          <button
+            onClick={() => openExerciseDialog()}
+            aria-label="Catat olahraga"
+            title="Catat olahraga"
+            className="flex items-center justify-center h-[42px] w-[42px] rounded-[12px] border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors shrink-0"
+          >
+            <Dumbbell size={18} />
+          </button>
+        </div>
 
         {/* Profile */}
         <div className="flex items-center gap-2.5 rounded-[14px] border border-border bg-muted/30 p-2.5">

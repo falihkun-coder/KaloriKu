@@ -5,6 +5,8 @@ import { useStore } from "@/store/useStore";
 import {
   consumedToday,
   entriesForDay,
+  exercisesForDay,
+  budgetBurned,
   dateKeyWIB,
   streak,
   weeklyAvg,
@@ -16,17 +18,22 @@ import { MacroDonut } from "@/components/dashboard/macro-donut";
 import { MealBreakdown } from "@/components/dashboard/meal-breakdown";
 import { TodayEntries } from "@/components/dashboard/today-entries";
 import { WaterCard } from "@/components/dashboard/water-card";
+import { ExerciseCard } from "@/components/dashboard/exercise-card";
 import { AdvisorCard } from "@/components/dashboard/advisor-card";
 import { useAuth } from "@/components/auth-provider";
 
 export default function DashboardPage() {
   const entries = useStore((state) => state.entries);
   const goals = useStore((state) => state.goals);
+  const exercises = useStore((state) => state.exercises);
   const openFoodDialog = useStore((state) => state.openFoodDialog);
   const { user } = useAuth();
 
-  const todayEntries = entriesForDay(entries, dateKeyWIB());
+  const todayKey = dateKeyWIB();
+  const todayEntries = entriesForDay(entries, todayKey);
+  const todayExercises = exercisesForDay(exercises, todayKey);
   const consumed = consumedToday(entries);
+  const burned = budgetBurned(goals, exercises, todayKey);
   const streakDays = streak(entries);
   const avg7 = weeklyAvg(entries);
 
@@ -61,7 +68,7 @@ export default function DashboardPage() {
       {/* Hero + side stats */}
       <div className="grid lg:grid-cols-3 gap-4 md:gap-5">
         <div className="lg:col-span-2">
-          <HeroCard goals={goals} consumed={consumed} />
+          <HeroCard goals={goals} consumed={consumed} burned={burned} />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-1 gap-4 md:gap-5">
           <div className="rounded-[18px] border border-border bg-card p-4 md:p-5">
@@ -102,6 +109,9 @@ export default function DashboardPage() {
         <MacroDonut consumed={consumed} />
         <MealBreakdown todayEntries={todayEntries} />
       </div>
+
+      {/* Olahraga hari ini */}
+      <ExerciseCard todayExercises={todayExercises} />
 
       {/* Saran menu AI */}
       <AdvisorCard />

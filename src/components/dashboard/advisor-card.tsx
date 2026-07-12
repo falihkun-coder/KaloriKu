@@ -21,6 +21,7 @@ export function AdvisorCard() {
         method: "POST",
         headers: { Authorization: `Bearer ${idToken}` },
       });
+      // Endpoint sudah net-aware (baca exercises server-side); tinggal tampil
       if (!res.ok) throw new Error(`advisor failed: ${res.status}`);
       const data = (await res.json()) as { suggestions: MealSuggestion[] };
       setSuggestions(data.suggestions);

@@ -1,5 +1,5 @@
 import { adminDb } from "@/lib/firebase-admin";
-import { FoodEntry, Goals, WeightLog, DEFAULT_GOALS } from "@/lib/calculations";
+import { FoodEntry, ExerciseEntry, Goals, WeightLog, DEFAULT_GOALS } from "@/lib/calculations";
 import { formatDailySummary, formatWeeklySummary } from "@/lib/calorie-summary";
 
 const TG = () => `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}`;
@@ -23,17 +23,19 @@ async function getLinkedUsers(): Promise<LinkedUser[]> {
 
 async function getUserData(uid: string) {
   const since = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
-  const [entriesSnap, goalsDoc, weightsSnap] = await Promise.all([
+  const [entriesSnap, goalsDoc, weightsSnap, exercisesSnap] = await Promise.all([
     adminDb.collection("foodEntries").where("userId", "==", uid).where("createdAt", ">=", since).get(),
     adminDb.collection("goals").doc(uid).get(),
     adminDb.collection("weights").where("userId", "==", uid).get(),
+    adminDb.collection("exercises").where("userId", "==", uid).where("createdAt", ">=", since).get(),
   ]);
   const entries = entriesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FoodEntry[];
   const goals: Goals = goalsDoc.exists ? { ...DEFAULT_GOALS, ...(goalsDoc.data() as Goals) } : DEFAULT_GOALS;
   const weights = (weightsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as WeightLog[]).sort((a, b) =>
     a.date < b.date ? -1 : 1
   );
-  return { entries, goals, weights };
+  const exercises = exercisesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[];
+  return { entries, goals, weights, exercises };
 }
 
 // Kirim ringkasan ke semua user yang link Telegram. Kegagalan 1 user jangan
@@ -44,9 +46,11 @@ async function broadcast(kind: "daily" | "weekly"): Promise<{ sent: number; fail
   let failed = 0;
   for (const u of users) {
     try {
-      const { entries, goals, weights } = await getUserData(u.uid);
+      const { entries, goals, weights, exercises } = await getUserData(u.uid);
       const msg =
-        kind === "daily" ? formatDailySummary(entries, goals) : formatWeeklySummary(entries, goals, weights);
+        kind === "daily"
+          ? formatDailySummary(entries, goals, undefined, exercises)
+          : formatWeeklySummary(entries, goals, weights, undefined, exercises);
       await sendTelegram(u.chatId, msg);
       sent++;
     } catch (e) {

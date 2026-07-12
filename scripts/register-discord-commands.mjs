@@ -49,6 +49,11 @@ const commands = [
     description: "Catat makan dari foto makanan / label nutrisi",
     options: [{ name: "foto", description: "Foto makanan atau label nutrisi", type: ATTACHMENT, required: true }],
   },
+  {
+    name: "olahraga",
+    description: "Catat olahraga (AI estimasi kalori terbakar)",
+    options: [{ name: "deskripsi", description: "Contoh: lari 5km 30 menit", type: STRING, required: true }],
+  },
   { name: "today", description: "Ringkasan kalori hari ini" },
   {
     name: "muat",

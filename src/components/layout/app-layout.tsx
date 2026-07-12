@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { FoodDialog } from "@/components/food/food-dialog";
+import { ExerciseDialog } from "@/components/exercise/exercise-dialog";
 
 import { Sidebar } from "./sidebar";
 
@@ -52,8 +53,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </div>
 
-      {/* Dialog tambah/edit makan — global, bisa dibuka dari sidebar, FAB, dan empty state */}
+      {/* Dialog global — bisa dibuka dari sidebar, FAB, empty state, dll */}
       <FoodDialog />
+      <ExerciseDialog />
     </div>
   );
 }
