@@ -50,6 +50,8 @@ export type SavedMeal = {
   id: string;
   userId?: string;
   name: string;
+  /** Nama resto/warung kalau ini menu resto (diisi AI lookup) */
+  restaurant?: string;
   kcal: number;
   protein_g: number;
   carbs_g: number;
@@ -57,6 +59,11 @@ export type SavedMeal = {
   portion: string;
   useCount?: number;
 };
+
+/** Label tampilan favorit: "Nama (Resto)" kalau ada restonya. */
+export function mealLabel(m: Pick<SavedMeal, "name" | "restaurant">): string {
+  return m.restaurant ? `${m.name} (${m.restaurant})` : m.name;
+}
 
 export const DEFAULT_WATER_TARGET_ML = 2000;
 

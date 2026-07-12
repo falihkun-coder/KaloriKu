@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { useStore } from "@/store/useStore";
-import { MealType, MEAL_ORDER, MEAL_LABELS } from "@/lib/calculations";
+import { MealType, MEAL_ORDER, MEAL_LABELS, mealLabel } from "@/lib/calculations";
 import { toast } from "sonner";
 import { Trash2, X } from "lucide-react";
 
@@ -204,7 +204,7 @@ export function FoodDialog() {
                 onClick={() =>
                   setForm({
                     ...form,
-                    name: m.name,
+                    name: mealLabel(m),
                     kcal: String(m.kcal),
                     protein: String(m.protein_g),
                     carbs: String(m.carbs_g),
@@ -212,6 +212,7 @@ export function FoodDialog() {
                     portion: m.portion || "1 porsi",
                   })
                 }
+                title={mealLabel(m)}
                 className="px-3 py-1.5 rounded-full text-[12px] font-semibold bg-white/10 text-white/90 border border-white/25 hover:bg-white/20 transition-colors"
               >
                 ⭐ {m.name}

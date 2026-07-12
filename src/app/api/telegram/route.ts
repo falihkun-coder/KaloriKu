@@ -407,14 +407,17 @@ export async function POST(request: Request) {
       const procMsgId = procMsg?.result?.message_id;
       try {
         // Makanan langganan? Pakai angka library, gak perlu Gemini.
+        // Match nama aja ("big mac") atau nama + resto ("big mac mcd").
         const norm = text.trim().toLowerCase();
         const mealsSnap = await adminDb.collection("meals").where("userId", "==", userId).get();
-        const fav = (mealsSnap.docs.map((d) => d.data()) as SavedMeal[]).find(
-          (m) => m.name.trim().toLowerCase() === norm
-        );
+        const fav = (mealsSnap.docs.map((d) => d.data()) as SavedMeal[]).find((m) => {
+          const name = m.name.trim().toLowerCase();
+          const withResto = m.restaurant ? `${name} ${m.restaurant.trim().toLowerCase()}` : name;
+          return name === norm || withResto === norm;
+        });
         if (fav) {
           const food: ExtractedFood = {
-            name: fav.name,
+            name: fav.restaurant ? `${fav.name} (${fav.restaurant})` : fav.name,
             kcal: fav.kcal,
             protein_g: fav.protein_g,
             carbs_g: fav.carbs_g,

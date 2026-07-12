@@ -12,7 +12,7 @@ import {
   deleteDoc,
   where,
 } from "firebase/firestore";
-import { FoodEntry, Goals, WeightLog, WaterLog, SavedMeal, DEFAULT_GOALS, dateKeyWIB } from "@/lib/calculations";
+import { FoodEntry, Goals, WeightLog, WaterLog, SavedMeal, DEFAULT_GOALS, dateKeyWIB, mealLabel } from "@/lib/calculations";
 
 export type UserProfile = {
   name?: string;
@@ -239,7 +239,9 @@ export const useStore = create<AppState>((set, get) => ({
       const state = get();
       if (!state.userId) throw new Error("User not authenticated");
 
-      const exists = state.meals.some((m) => m.name.trim().toLowerCase() === meal.name.trim().toLowerCase());
+      const exists = state.meals.some(
+        (m) => mealLabel(m).trim().toLowerCase() === mealLabel(meal).trim().toLowerCase()
+      );
       if (exists) return;
 
       const newMeal = { ...meal, userId: state.userId, useCount: 0 };
@@ -265,7 +267,7 @@ export const useStore = create<AppState>((set, get) => ({
   logMeal: async (meal) => {
     const state = get();
     await state.addEntry({
-      name: meal.name,
+      name: mealLabel(meal),
       kcal: meal.kcal,
       protein_g: meal.protein_g,
       carbs_g: meal.carbs_g,
