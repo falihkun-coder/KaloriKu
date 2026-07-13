@@ -72,7 +72,7 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     - If it's a food photo or free text: estimate, confidence 0.5–0.8 depending on clarity.
     - kcal should be roughly consistent with macros (protein*4 + carbs*4 + fat*9).
     - meal: infer from context; if unclear use "${currentMealWIB()}" (current time in Jakarta).
-    ${input.caption ? `- USER CONTEXT/CAPTION: "${input.caption}" — prioritize it for portion and meal.` : ""}
+    ${input.caption ? `- USER CONTEXT/CAPTION: "${input.caption}". This is authoritative — the user is clarifying what's in the photo. PRIORITIZE it over what the image alone suggests: use any stated weights/grams (e.g. "nasi 200gr", "ayam 150gr"), quantities, cooking style (goreng/rebus/tanpa kulit), brand, or portion to compute the nutrition. If it names multiple items, include them in the items[] breakdown.` : ""}
     ${input.text ? `- Food description: "${input.text}"` : ""}
 
     Return ONLY a valid JSON object (no markdown, no backticks) with keys:

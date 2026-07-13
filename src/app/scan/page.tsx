@@ -15,6 +15,7 @@ export default function ScanPage() {
   const openFoodDialog = useStore((state) => state.openFoodDialog);
   const [mode, setMode] = useState<Mode>("foto");
   const [text, setText] = useState("");
+  const [caption, setCaption] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState("image/jpeg");
@@ -53,7 +54,9 @@ export default function ScanPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify(
-          mode === "foto" ? { imageBase64, mimeType } : { text: text.trim() }
+          mode === "foto"
+            ? { imageBase64, mimeType, ...(caption.trim() && { caption: caption.trim() }) }
+            : { text: text.trim() }
         ),
       });
       if (!res.ok) throw new Error(`scan failed: ${res.status}`);
@@ -135,6 +138,23 @@ export default function ScanPage() {
                 Ganti foto
               </button>
             )}
+
+            {/* Konteks tambahan buat bantu AI lebih akurat */}
+            <div className="space-y-1.5">
+              <label className="text-[12px] font-medium text-muted-foreground">
+                Konteks tambahan <span className="text-muted-foreground/70">(opsional)</span>
+              </label>
+              <textarea
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                rows={2}
+                placeholder={'Contoh: "nasi ~200gr, ayam ~150gr, tanpa kulit" — biar estimasi lebih pas'}
+                className="w-full rounded-[14px] bg-background border border-border px-4 py-3 text-sm outline-none focus:border-primary transition-colors resize-none"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Sebutin porsi/berat atau detail yang gak keliatan di foto — AI bakal prioritasin ini.
+              </p>
+            </div>
           </>
         ) : (
           <textarea
