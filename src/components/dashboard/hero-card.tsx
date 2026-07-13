@@ -15,7 +15,7 @@ export function HeroCard({ goals, consumed, burned = 0 }: { goals: Goals; consum
 
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[13px] font-semibold text-white/80">Sisa kalori hari ini</p>
+          <p className="text-[13px] font-semibold text-white/80">Kalori hari ini</p>
           {r.over ? (
             <span className="text-[11px] font-bold bg-white/20 text-white px-2.5 py-1 rounded-full">
               Lewat target
@@ -27,14 +27,31 @@ export function HeroCard({ goals, consumed, burned = 0 }: { goals: Goals; consum
           )}
         </div>
 
-        <p className="font-heading font-bold tabular-nums tracking-tight text-[clamp(40px,7vw,56px)] leading-none mt-3">
-          {fmtNum(Math.abs(r.kcal))}
-          <span className="text-[17px] font-semibold text-white/75 ml-2">
-            {r.over ? "kkal lebih" : "kkal lagi"}
-          </span>
-        </p>
+        <div className="flex flex-wrap items-start gap-x-9 gap-y-3 mt-3">
+          {/* Sisa kalori (budget, sudah termasuk olahraga) */}
+          <div>
+            <p className="text-[12px] font-medium text-white/70">Sisa kalori</p>
+            <p className="font-heading font-bold tabular-nums tracking-tight text-[clamp(38px,6.5vw,54px)] leading-none mt-0.5">
+              {fmtNum(Math.abs(r.kcal))}
+              <span className="text-[16px] font-semibold text-white/75 ml-2">
+                {r.over ? "kkal lebih" : "kkal lagi"}
+              </span>
+            </p>
+          </div>
 
-        <p className="text-[13px] text-white/75 mt-2">
+          {/* Net kalori masuk = makanan − olahraga */}
+          {burned > 0 && (
+            <div className="pl-0 sm:pl-9 sm:border-l sm:border-white/20">
+              <p className="text-[12px] font-medium text-white/70">Net masuk (− olahraga)</p>
+              <p className="font-heading font-bold tabular-nums tracking-tight text-[clamp(38px,6.5vw,54px)] leading-none mt-0.5">
+                {fmtNum(consumed.kcal - burned)}
+                <span className="text-[16px] font-semibold text-white/75 ml-2">kkal</span>
+              </p>
+            </div>
+          )}
+        </div>
+
+        <p className="text-[13px] text-white/75 mt-3">
           {fmtNum(consumed.kcal)} dari target {fmtNum(goals.kcalTarget)} kkal
           {burned > 0 && <span className="text-white/90 font-semibold"> +{fmtNum(burned)} dari olahraga 🔥</span>}
         </p>
