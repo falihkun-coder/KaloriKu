@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { MonitorPlay, Plus, Play, Trash2, ListVideo, ListMusic } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
+import { WorkoutPlayer } from "@/components/musik/workout-player";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -34,12 +35,6 @@ function parseYouTube(input: string): Parsed | null {
   if (/^[A-Za-z0-9_-]{11}$/.test(s)) return { kind: "video", id: s };
   if (/^[A-Za-z0-9_-]{12,}$/.test(s) && !s.includes("/") && !s.includes(".")) return { kind: "playlist", id: s };
   return null;
-}
-
-function embedSrc(kind: "playlist" | "video" | undefined, id: string): string {
-  return kind === "video"
-    ? `https://www.youtube.com/embed/${id}?rel=0&autoplay=1`
-    : `https://www.youtube.com/embed/videoseries?list=${id}&rel=0&autoplay=1`;
 }
 
 export default function MusikPage() {
@@ -109,18 +104,7 @@ export default function MusikPage() {
 
       {/* Player */}
       {active ? (
-        <div className="rounded-[22px] border border-border bg-card p-2.5 md:p-3 overflow-hidden">
-          <div className="relative w-full overflow-hidden rounded-[16px]" style={{ aspectRatio: "16 / 9" }}>
-            <iframe
-              key={active.playlistId}
-              src={embedSrc(active.kind, active.playlistId)}
-              title={active.name}
-              className="absolute inset-0 h-full w-full"
-              allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
-        </div>
+        <WorkoutPlayer item={active} />
       ) : (
         <div className="rounded-[22px] border border-border bg-card flex flex-col items-center justify-center text-center py-12 px-6">
           <div className="h-11 w-11 rounded-[14px] bg-accent text-primary flex items-center justify-center mb-3">
