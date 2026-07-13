@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MealType, MealItem } from "@/lib/calculations";
+import { AiUsage } from "@/lib/ai-pricing";
 
 export type ExtractedFood = {
   name: string;
@@ -13,7 +14,16 @@ export type ExtractedFood = {
   confidence: number;
   /** Breakdown per item untuk paket/combo — biar user bisa cek referensi AI */
   items?: MealItem[];
+  /** Token in/out buat tracking biaya (server yang catat) */
+  usage?: AiUsage;
 };
+
+// Ambil token in/out dari respons Gemini buat tracking biaya.
+export function readUsage(resp: { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } }): AiUsage | undefined {
+  const um = resp.usageMetadata;
+  if (!um) return undefined;
+  return { inputTokens: um.promptTokenCount || 0, outputTokens: um.candidatesTokenCount || 0 };
+}
 
 export type ExtractInput = {
   text?: string;
@@ -117,5 +127,6 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     meal,
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
     ...(items && { items }),
+    usage: readUsage(result.response),
   };
 }

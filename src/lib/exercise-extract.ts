@@ -1,5 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ExerciseType } from "@/lib/calculations";
+import { AiUsage } from "@/lib/ai-pricing";
+import { readUsage } from "@/lib/ai-extract";
 
 export type ExtractedExercise = {
   name: string;
@@ -7,6 +9,7 @@ export type ExtractedExercise = {
   durationMin: number;
   kcalBurned: number;
   confidence: number;
+  usage?: AiUsage;
 };
 
 const VALID_TYPES: ExerciseType[] = ["kardio", "beban", "hiit", "jalan", "lainnya"];
@@ -49,5 +52,6 @@ export async function estimateExercise(text: string, weightKg?: number): Promise
     durationMin: Math.max(0, Math.round(Number(parsed.durationMin) || 0)),
     kcalBurned: Math.max(0, Math.round(Number(parsed.kcalBurned) || 0)),
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
+    usage: readUsage(result.response),
   };
 }

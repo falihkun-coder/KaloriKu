@@ -22,6 +22,7 @@ import {
   waterOn,
 } from "@/lib/calculations";
 import { estimateExercise } from "@/lib/exercise-extract";
+import { recordAiUsage } from "@/lib/ai-usage";
 
 function currentMealWIB(): MealType {
   const hour = Number(
@@ -112,6 +113,7 @@ function pendingConfirmText(food: ExtractedFood): string {
 // Konfirmasi wajib sebelum simpan (guardrail akurasi, brief §08) — payload
 // diparkir di pendingEntries karena callback_data Telegram cuma 64 byte.
 async function sendConfirm(chatId: number, userId: string, food: ExtractedFood, source: "chat" | "scan", editMsgId?: number) {
+  await recordAiUsage(userId, food.usage);
   const pendingRef = await adminDb.collection("pendingEntries").add({
     userId,
     chatId,
@@ -304,6 +306,7 @@ export async function POST(request: Request) {
         const latestWeight = weights.length > 0 ? (weights[weights.length - 1].kg as number) : undefined;
 
         const ex = await estimateExercise(desc, latestWeight);
+        await recordAiUsage(userId, ex.usage);
         await adminDb.collection("exercises").add({
           userId,
           name: ex.name,
@@ -388,10 +391,16 @@ export async function POST(request: Request) {
     if (text && /^\/saran\b/i.test(text)) {
       const procMsg = await sendMessage(chatId, "🤔 Mikirin menu...");
       try {
-        const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
+        const [entries, goals, exercises] = await Promise.all([
+          getRecentEntries(userId),
+          getGoals(userId),
+          getRecentExercises(userId),
+        ]);
         const consumed = consumedToday(entries);
-        const suggestions = await suggestMeals(goals, consumed);
-        await editMessage(chatId, procMsg?.result?.message_id, formatSuggestions(suggestions, goals.kcalTarget - consumed.kcal));
+        const burned = budgetBurned(goals, exercises);
+        const { suggestions, usage } = await suggestMeals(goals, consumed, burned);
+        await recordAiUsage(userId, usage);
+        await editMessage(chatId, procMsg?.result?.message_id, formatSuggestions(suggestions, goals.kcalTarget + burned - consumed.kcal));
       } catch (e) {
         console.error("saran error:", e);
         await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal bikin saran, coba lagi bentar.");
@@ -408,12 +417,14 @@ export async function POST(request: Request) {
       }
       const procMsg = await sendMessage(chatId, "🧮 Ngitung...");
       try {
-        const [food, entries, goals] = await Promise.all([
+        const [food, entries, goals, exercises] = await Promise.all([
           extractFood({ text: queryText }),
           getRecentEntries(userId),
           getGoals(userId),
+          getRecentExercises(userId),
         ]);
-        const result = simulateFit(goals, consumedToday(entries), food);
+        await recordAiUsage(userId, food.usage);
+        const result = simulateFit(goals, consumedToday(entries), food, budgetBurned(goals, exercises));
         await editMessage(chatId, procMsg?.result?.message_id, formatFit(result));
       } catch (e) {
         console.error("muat error:", e);

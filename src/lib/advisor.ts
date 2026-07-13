@@ -1,5 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
+import { AiUsage } from "@/lib/ai-pricing";
+import { readUsage } from "@/lib/ai-extract";
 
 export type MealSuggestion = {
   name: string;
@@ -12,7 +14,11 @@ export type MealSuggestion = {
 
 // Saran menu dari sisa kalori/macro hari ini (brief §07 /api/advisor) —
 // shared web (card dashboard) & Telegram (/saran) biar sarannya konsisten.
-export async function suggestMeals(goals: Goals, consumedToday: MacroTotals, burned = 0): Promise<MealSuggestion[]> {
+export async function suggestMeals(
+  goals: Goals,
+  consumedToday: MacroTotals,
+  burned = 0
+): Promise<{ suggestions: MealSuggestion[]; usage?: AiUsage }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
@@ -42,7 +48,7 @@ export async function suggestMeals(goals: Goals, consumedToday: MacroTotals, bur
   const parsed = JSON.parse(cleanJson);
   if (!Array.isArray(parsed)) throw new Error("advisor: unexpected response shape");
 
-  return parsed.slice(0, 3).map((s) => ({
+  const suggestions = parsed.slice(0, 3).map((s) => ({
     name: String(s.name || "Menu").slice(0, 80),
     kcal: Math.max(0, Math.round(Number(s.kcal) || 0)),
     protein_g: Math.max(0, Math.round((Number(s.protein_g) || 0) * 10) / 10),
@@ -50,6 +56,7 @@ export async function suggestMeals(goals: Goals, consumedToday: MacroTotals, bur
     fat_g: Math.max(0, Math.round((Number(s.fat_g) || 0) * 10) / 10),
     reason: String(s.reason || "").slice(0, 160),
   }));
+  return { suggestions, usage: readUsage(result.response) };
 }
 
 // Balasan Telegram-ready untuk /saran.

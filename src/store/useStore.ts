@@ -24,6 +24,12 @@ import {
   mealLabel,
 } from "@/lib/calculations";
 
+export type AiUsageStats = {
+  totalRequests: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+};
+
 export type UserProfile = {
   name?: string;
   email?: string;
@@ -40,6 +46,7 @@ interface AppState {
   waterLogs: WaterLog[];
   meals: SavedMeal[];
   exercises: ExerciseEntry[];
+  aiUsage: AiUsageStats;
   profile: UserProfile;
   isLoading: boolean;
 
@@ -91,6 +98,7 @@ export const useStore = create<AppState>((set, get) => ({
   waterLogs: [],
   meals: [],
   exercises: [],
+  aiUsage: { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 },
   profile: {},
   isLoading: false,
 
@@ -117,17 +125,27 @@ export const useStore = create<AppState>((set, get) => ({
       const exerciseQuery = query(collection(db, "exercises"), where("userId", "==", currentUid));
       const goalsDocRef = doc(db, "goals", currentUid);
       const userDocRef = doc(db, "users", currentUid);
+      const aiUsageDocRef = doc(db, "aiUsage", currentUid);
 
-      const [entrySnapshot, weightSnapshot, waterSnapshot, mealSnapshot, exerciseSnapshot, goalsDocSnap, userDocSnap] =
-        await Promise.all([
-          getDocs(entryQuery),
-          getDocs(weightQuery),
-          getDocs(waterQuery),
-          getDocs(mealQuery),
-          getDocs(exerciseQuery),
-          getDoc(goalsDocRef),
-          getDoc(userDocRef),
-        ]);
+      const [
+        entrySnapshot,
+        weightSnapshot,
+        waterSnapshot,
+        mealSnapshot,
+        exerciseSnapshot,
+        goalsDocSnap,
+        userDocSnap,
+        aiUsageDocSnap,
+      ] = await Promise.all([
+        getDocs(entryQuery),
+        getDocs(weightQuery),
+        getDocs(waterQuery),
+        getDocs(mealQuery),
+        getDocs(exerciseQuery),
+        getDoc(goalsDocRef),
+        getDoc(userDocRef),
+        getDoc(aiUsageDocRef),
+      ]);
 
       const entries = sortByCreatedDesc(
         entrySnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as FoodEntry[]
@@ -166,7 +184,15 @@ export const useStore = create<AppState>((set, get) => ({
       }
       await setDoc(userDocRef, profile, { merge: true });
 
-      set({ entries, weights, waterLogs, meals, exercises, goals, profile, isLoading: false });
+      const aiUsage: AiUsageStats = aiUsageDocSnap.exists()
+        ? {
+            totalRequests: (aiUsageDocSnap.data().totalRequests as number) || 0,
+            totalInputTokens: (aiUsageDocSnap.data().totalInputTokens as number) || 0,
+            totalOutputTokens: (aiUsageDocSnap.data().totalOutputTokens as number) || 0,
+          }
+        : { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+
+      set({ entries, weights, waterLogs, meals, exercises, aiUsage, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { AccentToggle } from "@/components/accent-toggle";
+import { AiUsageCard } from "@/components/dashboard/ai-usage-card";
 import { useAuth } from "@/components/auth-provider";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -320,6 +321,9 @@ export default function GoalsPage() {
           </>
         )}
       </div>
+
+      {/* Pemakaian AI */}
+      <AiUsageCard />
 
       {/* Tampilan — penting di mobile karena sidebar (yang punya toggle) desktop-only */}
       <div className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-4">

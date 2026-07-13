@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
 import { suggestMeals } from "@/lib/advisor";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { FoodEntry, ExerciseEntry, Goals, DEFAULT_GOALS, consumedToday, budgetBurned } from "@/lib/calculations";
 
 // Saran menu dari sisa kalori/macro user (brief §07). Wajib login.
@@ -27,7 +28,8 @@ export async function POST(request: Request) {
     const exercises = exSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[];
     const goals: Goals = goalsDoc.exists ? { ...DEFAULT_GOALS, ...(goalsDoc.data() as Goals) } : DEFAULT_GOALS;
 
-    const suggestions = await suggestMeals(goals, consumedToday(entries), budgetBurned(goals, exercises));
+    const { suggestions, usage } = await suggestMeals(goals, consumedToday(entries), budgetBurned(goals, exercises));
+    await recordAiUsage(uid, usage);
     return NextResponse.json({ suggestions });
   } catch (error) {
     console.error("advisor error:", error);

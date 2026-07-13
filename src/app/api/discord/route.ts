@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { adminDb } from "@/lib/firebase-admin";
 import { extractFood, ExtractedFood } from "@/lib/ai-extract";
 import { estimateExercise } from "@/lib/exercise-extract";
+import { recordAiUsage } from "@/lib/ai-usage";
 import { formatDailySummary } from "@/lib/calorie-summary";
 import { simulateFit, formatFit } from "@/lib/simulate-fit";
 import { suggestMeals, formatSuggestions } from "@/lib/advisor";
@@ -130,6 +131,7 @@ function confirmButtons(pendingId: string): Component[] {
 // Parkir hasil AI di pendingEntries (custom_id cuma muat id) — wajib konfirmasi
 // sebelum simpan (guardrail akurasi, brief §08).
 async function createPending(userId: string, food: ExtractedFood, source: "chat" | "scan"): Promise<string> {
+  await recordAiUsage(userId, food.usage);
   const ref = await adminDb.collection("pendingEntries").add({
     userId,
     source,
@@ -263,6 +265,7 @@ export async function POST(request: Request) {
           const latestWeight = weights.length > 0 ? (weights[weights.length - 1].kg as number) : undefined;
 
           const ex = await estimateExercise(desc, latestWeight);
+          await recordAiUsage(userId, ex.usage);
           await adminDb.collection("exercises").add({
             userId,
             name: ex.name,
@@ -314,22 +317,30 @@ export async function POST(request: Request) {
             await editOriginal(token, { content: "🧮 Format: /muat makanan:<nama>. Contoh: /muat makanan:martabak 2 potong" });
             return;
           }
-          const [food, entries, goals] = await Promise.all([
+          const [food, entries, goals, exercises] = await Promise.all([
             extractFood({ text: query }),
             getRecentEntries(userId),
             getGoals(userId),
+            getRecentExercises(userId),
           ]);
-          const result = simulateFit(goals, consumedToday(entries), food);
+          await recordAiUsage(userId, food.usage);
+          const result = simulateFit(goals, consumedToday(entries), food, budgetBurned(goals, exercises));
           await editOriginal(token, { content: formatFit(result) });
           return;
         }
 
         // /saran — AI saranin menu
         if (name === "saran") {
-          const [entries, goals] = await Promise.all([getRecentEntries(userId), getGoals(userId)]);
+          const [entries, goals, exercises] = await Promise.all([
+            getRecentEntries(userId),
+            getGoals(userId),
+            getRecentExercises(userId),
+          ]);
           const consumed = consumedToday(entries);
-          const suggestions = await suggestMeals(goals, consumed);
-          await editOriginal(token, { content: formatSuggestions(suggestions, goals.kcalTarget - consumed.kcal) });
+          const burned = budgetBurned(goals, exercises);
+          const { suggestions, usage } = await suggestMeals(goals, consumed, burned);
+          await recordAiUsage(userId, usage);
+          await editOriginal(token, { content: formatSuggestions(suggestions, goals.kcalTarget + burned - consumed.kcal) });
           return;
         }
 
