@@ -1,15 +1,9 @@
 "use client";
 
-import { Dumbbell, Plus, Heart } from "lucide-react";
-import { ExerciseEntry, EXERCISE_LABELS, fmtNum } from "@/lib/calculations";
+import { Dumbbell, Plus } from "lucide-react";
+import { ExerciseEntry, fmtNum } from "@/lib/calculations";
+import { ExerciseRow, EXERCISE_COLOR } from "@/components/exercise/exercise-row";
 import { useStore } from "@/store/useStore";
-
-const EXERCISE_COLOR = "#5B7FC4";
-
-function initials(name: string) {
-  const parts = (name || "").trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]).join("").toUpperCase() || "?";
-}
 
 export function ExerciseCard({ todayExercises }: { todayExercises: ExerciseEntry[] }) {
   const openExerciseDialog = useStore((state) => state.openExerciseDialog);
@@ -47,39 +41,7 @@ export function ExerciseCard({ todayExercises }: { todayExercises: ExerciseEntry
       {todayExercises.length > 0 && (
         <div className="mt-2 divide-y divide-line-soft">
           {todayExercises.map((e) => (
-            <div
-              key={e.id}
-              onClick={() => openExerciseDialog(e)}
-              className="group flex items-center gap-3 py-3 cursor-pointer"
-            >
-              <div
-                className="h-[42px] w-[42px] rounded-[12px] flex items-center justify-center text-[13px] font-bold shrink-0"
-                style={{ backgroundColor: `color-mix(in srgb, ${EXERCISE_COLOR} 14%, transparent)`, color: EXERCISE_COLOR }}
-              >
-                {initials(e.name)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-foreground truncate group-hover:text-primary transition-colors">
-                  {e.name}
-                </p>
-                <p className="text-[12px] text-muted-foreground truncate mt-0.5">
-                  {EXERCISE_LABELS[e.type]}
-                  {e.durationMin ? ` · ${fmtNum(e.durationMin)} mnt` : ""}
-                  {e.avgHr ? (
-                    <>
-                      {" · "}
-                      <Heart size={10} className="inline -mt-0.5" /> {fmtNum(e.avgHr)}
-                      {e.maxHr ? `/${fmtNum(e.maxHr)}` : ""} bpm
-                    </>
-                  ) : (
-                    ""
-                  )}
-                </p>
-              </div>
-              <span className="text-sm font-bold tabular-nums shrink-0" style={{ color: EXERCISE_COLOR }}>
-                −{fmtNum(e.kcalBurned)} <span className="text-[11px] font-semibold text-muted-foreground">kkal</span>
-              </span>
-            </div>
+            <ExerciseRow key={e.id} exercise={e} onClick={() => openExerciseDialog(e)} />
           ))}
         </div>
       )}
