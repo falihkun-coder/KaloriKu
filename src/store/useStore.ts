@@ -30,6 +30,14 @@ export type AiUsageStats = {
   totalOutputTokens: number;
 };
 
+export type Playlist = {
+  id: string;
+  userId?: string;
+  name: string;
+  playlistId: string;
+  createdAt: string;
+};
+
 export type UserProfile = {
   name?: string;
   email?: string;
@@ -46,6 +54,7 @@ interface AppState {
   waterLogs: WaterLog[];
   meals: SavedMeal[];
   exercises: ExerciseEntry[];
+  playlists: Playlist[];
   aiUsage: AiUsageStats;
   profile: UserProfile;
   isLoading: boolean;
@@ -73,6 +82,8 @@ interface AppState {
   addExercise: (ex: Omit<ExerciseEntry, "id">) => Promise<void>;
   updateExercise: (id: string, ex: Partial<Omit<ExerciseEntry, "id">>) => Promise<void>;
   deleteExercise: (id: string) => Promise<void>;
+  addPlaylist: (p: Omit<Playlist, "id">) => Promise<void>;
+  deletePlaylist: (id: string) => Promise<void>;
   /** Tambah air minum hari ini (ml). */
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
@@ -98,6 +109,7 @@ export const useStore = create<AppState>((set, get) => ({
   waterLogs: [],
   meals: [],
   exercises: [],
+  playlists: [],
   aiUsage: { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 },
   profile: {},
   isLoading: false,
@@ -123,6 +135,7 @@ export const useStore = create<AppState>((set, get) => ({
       const waterQuery = query(collection(db, "waterLogs"), where("userId", "==", currentUid));
       const mealQuery = query(collection(db, "meals"), where("userId", "==", currentUid));
       const exerciseQuery = query(collection(db, "exercises"), where("userId", "==", currentUid));
+      const playlistQuery = query(collection(db, "playlists"), where("userId", "==", currentUid));
       const goalsDocRef = doc(db, "goals", currentUid);
       const userDocRef = doc(db, "users", currentUid);
       const aiUsageDocRef = doc(db, "aiUsage", currentUid);
@@ -133,6 +146,7 @@ export const useStore = create<AppState>((set, get) => ({
         waterSnapshot,
         mealSnapshot,
         exerciseSnapshot,
+        playlistSnapshot,
         goalsDocSnap,
         userDocSnap,
         aiUsageDocSnap,
@@ -142,6 +156,7 @@ export const useStore = create<AppState>((set, get) => ({
         getDocs(waterQuery),
         getDocs(mealQuery),
         getDocs(exerciseQuery),
+        getDocs(playlistQuery),
         getDoc(goalsDocRef),
         getDoc(userDocRef),
         getDoc(aiUsageDocRef),
@@ -163,6 +178,10 @@ export const useStore = create<AppState>((set, get) => ({
 
       const exercises = (exerciseSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[]).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      const playlists = (playlistSnapshot.docs.map((d) => ({ id: d.id, ...d.data() })) as Playlist[]).sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
       );
 
       let goals: Goals = { ...DEFAULT_GOALS, userId: currentUid };
@@ -192,7 +211,7 @@ export const useStore = create<AppState>((set, get) => ({
           }
         : { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 };
 
-      set({ entries, weights, waterLogs, meals, exercises, aiUsage, goals, profile, isLoading: false });
+      set({ entries, weights, waterLogs, meals, exercises, playlists, aiUsage, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -318,6 +337,30 @@ export const useStore = create<AppState>((set, get) => ({
       set({ exercises: state.exercises.filter((e) => e.id !== id) });
     } catch (error) {
       console.error("Error deleting exercise:", error);
+      throw error;
+    }
+  },
+
+  addPlaylist: async (p) => {
+    try {
+      const state = get();
+      if (!state.userId) throw new Error("User not authenticated");
+      const newP = { ...p, userId: state.userId };
+      const docRef = await addDoc(collection(db, "playlists"), newP);
+      set({ playlists: [...state.playlists, { id: docRef.id, ...newP } as Playlist] });
+    } catch (error) {
+      console.error("Error adding playlist:", error);
+      throw error;
+    }
+  },
+
+  deletePlaylist: async (id) => {
+    try {
+      const state = get();
+      await deleteDoc(doc(db, "playlists", id));
+      set({ playlists: state.playlists.filter((p) => p.id !== id) });
+    } catch (error) {
+      console.error("Error deleting playlist:", error);
       throw error;
     }
   },

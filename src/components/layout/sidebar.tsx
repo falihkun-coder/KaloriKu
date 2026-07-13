@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp, BookMarked, Dumbbell } from "lucide-react";
+import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp, BookMarked, Dumbbell, Music } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -24,6 +24,7 @@ export function Sidebar() {
     { href: "/simulator", icon: Calculator, label: "Simulator" },
     { href: "/tren", icon: TrendingUp, label: "Berat & Tren" },
     { href: "/library", icon: BookMarked, label: "Meal Library" },
+    { href: "/musik", icon: Music, label: "Musik" },
     { href: "/goals", icon: Target, label: "Goals & Setting" },
   ];
 
