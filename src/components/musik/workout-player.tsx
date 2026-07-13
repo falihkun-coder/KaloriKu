@@ -34,36 +34,49 @@ function loadYT(): Promise<void> {
 export function WorkoutPlayer({ item }: { item: Playlist }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
-  const [ready, setReady] = useState(false);
   const [videos, setVideos] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [shuffle, setShuffle] = useState(false);
 
   const isVideo = item.kind === "video";
 
-  // Buat player sekali; YT ganti <div> jadi <iframe> di dalam wrapper.
+  // Player dibuat ulang tiap item ganti (bukan reuse) — biar gak ada sisa
+  // state playlist lama yang bikin isinya keliatan ketuker.
   useEffect(() => {
     let cancelled = false;
+    setVideos([]);
+    setCurrentIndex(0);
+    setShuffle(false);
+
     loadYT().then(() => {
-      if (cancelled || !wrapperRef.current || playerRef.current) return;
+      if (cancelled || !wrapperRef.current) return;
       const inner = document.createElement("div");
       wrapperRef.current.appendChild(inner);
       playerRef.current = new window.YT.Player(inner, {
         width: "100%",
         height: "100%",
-        playerVars: { rel: 0, playsinline: 1 },
+        ...(isVideo ? { videoId: item.playlistId } : {}),
+        playerVars: {
+          rel: 0,
+          playsinline: 1,
+          autoplay: 1,
+          ...(isVideo ? {} : { listType: "playlist", list: item.playlistId }),
+        },
         events: {
-          onReady: () => setReady(true),
-          onStateChange: () => {
-            const p = playerRef.current;
-            const list = p?.getPlaylist?.();
-            if (Array.isArray(list)) setVideos(list);
-            const idx = p?.getPlaylistIndex?.();
-            if (typeof idx === "number" && idx >= 0) setCurrentIndex(idx);
-          },
+          onReady: grab,
+          onStateChange: grab,
         },
       });
     });
+
+    function grab() {
+      const p = playerRef.current;
+      const list = p?.getPlaylist?.();
+      if (Array.isArray(list)) setVideos(list);
+      const idx = p?.getPlaylistIndex?.();
+      if (typeof idx === "number" && idx >= 0) setCurrentIndex(idx);
+    }
+
     return () => {
       cancelled = true;
       try {
@@ -72,22 +85,9 @@ export function WorkoutPlayer({ item }: { item: Playlist }) {
         /* ignore */
       }
       playerRef.current = null;
+      if (wrapperRef.current) wrapperRef.current.innerHTML = "";
     };
-  }, []);
-
-  // Muat video / playlist tiap item berubah.
-  useEffect(() => {
-    if (!ready || !playerRef.current) return;
-    const p = playerRef.current;
-    setVideos([]);
-    setShuffle(false);
-    setCurrentIndex(0);
-    if (isVideo) {
-      p.loadVideoById(item.playlistId);
-    } else {
-      p.loadPlaylist({ list: item.playlistId, listType: "playlist", index: 0 });
-    }
-  }, [ready, item.playlistId, isVideo]);
+  }, [item.playlistId, isVideo]);
 
   const toggleShuffle = () => {
     const p = playerRef.current;
