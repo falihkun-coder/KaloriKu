@@ -95,14 +95,14 @@ export default function MusikPage() {
   };
 
   return (
-    <div className="space-y-5 pb-6 max-w-2xl">
+    <div className="space-y-5 pb-6">
       <PageHeader
         title="Video & Musik"
         description="Video workout & playlist favoritmu — tinggal tap buat nemenin olahraga."
         icon={MonitorPlay}
       />
 
-      {/* Player */}
+      {/* Player theater — selebar konten */}
       {active ? (
         <WorkoutPlayer item={active} />
       ) : (
@@ -117,6 +117,8 @@ export default function MusikPage() {
         </div>
       )}
 
+      {/* Kontrol di bawah player — lebar nyaman dibaca */}
+      <div className="max-w-3xl space-y-5">
       {/* Daftar tersimpan */}
       {playlists.length > 0 && (
         <div className="space-y-2">
@@ -192,6 +194,7 @@ export default function MusikPage() {
           simpan, next time tinggal tap.
         </p>
       </form>
+      </div>
     </div>
   );
 }

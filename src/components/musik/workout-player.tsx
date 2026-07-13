@@ -105,7 +105,11 @@ export function WorkoutPlayer({ item }: { item: Playlist }) {
 
   return (
     <div className="rounded-[22px] border border-border bg-card p-2.5 md:p-3 space-y-3 overflow-hidden">
-      <div className="relative w-full overflow-hidden rounded-[16px] bg-black" style={{ aspectRatio: "16 / 9" }}>
+      {/* Theater: video selebar mungkin, tapi tinggi dibatasi ~76vh biar muat layar */}
+      <div
+        className="relative w-full mx-auto overflow-hidden rounded-[16px] bg-black"
+        style={{ aspectRatio: "16 / 9", maxWidth: "calc(76vh * 16 / 9)" }}
+      >
         <div ref={wrapperRef} className="absolute inset-0 h-full w-full [&>iframe]:h-full [&>iframe]:w-full" />
       </div>
 
@@ -127,7 +131,7 @@ export function WorkoutPlayer({ item }: { item: Playlist }) {
             </button>
           </div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-64 overflow-y-auto scrollbar-hide">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-2 max-h-72 overflow-y-auto scrollbar-hide">
             {videos.map((vid, i) => (
               <button
                 key={`${vid}-${i}`}
