@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { MonitorPlay, Plus, Play, Trash2, ListVideo, ListMusic } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
@@ -45,11 +45,9 @@ export default function MusikPage() {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  // Sengaja gak auto-pilih pas masuk — biar gak auto-play & gak ngotorin
+  // history YouTube. Main baru pas user tap playlist/video.
   const [activeId, setActiveId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!activeId && playlists.length > 0) setActiveId(playlists[0].playlistId);
-  }, [playlists, activeId]);
 
   const active = playlists.find((p) => p.playlistId === activeId) || null;
 
@@ -110,9 +108,13 @@ export default function MusikPage() {
           <div className="h-11 w-11 rounded-[14px] bg-accent text-primary flex items-center justify-center mb-3">
             <ListVideo size={20} />
           </div>
-          <p className="text-sm font-semibold">Belum ada yang dipilih</p>
+          <p className="text-sm font-semibold">
+            {playlists.length > 0 ? "Pilih buat mulai" : "Belum ada yang dipilih"}
+          </p>
           <p className="text-[12px] text-muted-foreground mt-1 max-w-[280px]">
-            Tambah video workout atau playlist YouTube-mu di bawah, terus tap buat langsung diputar di sini.
+            {playlists.length > 0
+              ? "Tap salah satu di bawah buat mulai muter — sengaja gak auto-play biar gak ngotorin history YouTube-mu."
+              : "Tambah video workout atau playlist YouTube-mu di bawah, terus tap buat diputar di sini."}
           </p>
         </div>
       )}
