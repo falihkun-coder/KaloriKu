@@ -34,7 +34,10 @@ export type Playlist = {
   id: string;
   userId?: string;
   name: string;
+  /** ID YouTube — playlist id (PL...) atau video id, sesuai `kind` */
   playlistId: string;
+  /** default "playlist" biar kompatibel sama data lama */
+  kind?: "playlist" | "video";
   createdAt: string;
 };
 

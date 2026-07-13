@@ -1,21 +1,45 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Music, Plus, Play, Trash2, ListMusic } from "lucide-react";
+import { MonitorPlay, Plus, Play, Trash2, ListVideo, ListMusic } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// Ambil ID playlist dari macam-macam bentuk link YouTube (atau ID mentah).
-function parsePlaylistId(input: string): string | null {
+type Parsed = { kind: "playlist" | "video"; id: string };
+
+// Ambil ID dari link YouTube — video tunggal atau playlist.
+function parseYouTube(input: string): Parsed | null {
   const s = input.trim();
   if (!s) return null;
-  const m = s.match(/[?&]list=([A-Za-z0-9_-]+)/);
-  if (m) return m[1];
-  // ID mentah (biasanya diawali PL/RD/OLAK/UU, huruf-angka-_-)
-  if (/^[A-Za-z0-9_-]{12,}$/.test(s) && !s.includes("/") && !s.includes(".")) return s;
+  try {
+    const u = new URL(s.startsWith("http") ? s : `https://${s}`);
+    const list = u.searchParams.get("list");
+    const v = u.searchParams.get("v");
+    if (u.hostname.includes("youtu.be")) {
+      const id = u.pathname.slice(1).split("/")[0];
+      if (list) return { kind: "playlist", id: list };
+      if (id) return { kind: "video", id };
+    }
+    if (list) return { kind: "playlist", id: list };
+    if (v) return { kind: "video", id: v };
+    const pathMatch = u.pathname.match(/\/(embed|shorts|v)\/([A-Za-z0-9_-]+)/);
+    if (pathMatch) return { kind: "video", id: pathMatch[2] };
+  } catch {
+    /* bukan URL — coba ID mentah */
+  }
+  const listM = s.match(/[?&]list=([A-Za-z0-9_-]+)/);
+  if (listM) return { kind: "playlist", id: listM[1] };
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return { kind: "video", id: s };
+  if (/^[A-Za-z0-9_-]{12,}$/.test(s) && !s.includes("/") && !s.includes(".")) return { kind: "playlist", id: s };
   return null;
+}
+
+function embedSrc(kind: "playlist" | "video" | undefined, id: string): string {
+  return kind === "video"
+    ? `https://www.youtube.com/embed/${id}?rel=0&autoplay=1`
+    : `https://www.youtube.com/embed/videoseries?list=${id}&rel=0&autoplay=1`;
 }
 
 export default function MusikPage() {
@@ -28,38 +52,44 @@ export default function MusikPage() {
   const [saving, setSaving] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  // Auto-pilih playlist pertama pas data kebuka
   useEffect(() => {
     if (!activeId && playlists.length > 0) setActiveId(playlists[0].playlistId);
   }, [playlists, activeId]);
 
+  const active = playlists.find((p) => p.playlistId === activeId) || null;
+
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    const pid = parsePlaylistId(url);
-    if (!pid) {
-      toast.error("Link playlist YouTube-nya kurang pas — pastiin ada bagian ?list=...");
+    const parsed = parseYouTube(url);
+    if (!parsed) {
+      toast.error("Link YouTube-nya kurang pas — tempel link video atau playlist ya");
       return;
     }
     if (!name.trim()) {
-      toast.error("Kasih nama playlist-nya dulu");
+      toast.error("Kasih nama dulu");
       return;
     }
     setSaving(true);
     try {
-      await addPlaylist({ name: name.trim(), playlistId: pid, createdAt: new Date().toISOString() });
-      toast.success("Playlist kesimpen! 🎵");
-      setActiveId(pid);
+      await addPlaylist({
+        name: name.trim(),
+        playlistId: parsed.id,
+        kind: parsed.kind,
+        createdAt: new Date().toISOString(),
+      });
+      toast.success(parsed.kind === "video" ? "Video kesimpen! 🎬" : "Playlist kesimpen! 🎵");
+      setActiveId(parsed.id);
       setName("");
       setUrl("");
     } catch {
-      toast.error("Gagal simpan playlist");
+      toast.error("Gagal simpan");
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = async (id: string, pid: string, nm: string) => {
-    if (!window.confirm(`Hapus playlist "${nm}"?`)) return;
+    if (!window.confirm(`Hapus "${nm}"?`)) return;
     try {
       await deletePlaylist(id);
       if (activeId === pid) setActiveId(null);
@@ -72,19 +102,19 @@ export default function MusikPage() {
   return (
     <div className="space-y-5 pb-6 max-w-2xl">
       <PageHeader
-        title="Musik Olahraga"
-        description="Playlist YouTube favoritmu, tinggal tap buat nemenin cardio."
-        icon={Music}
+        title="Video & Musik"
+        description="Video workout & playlist favoritmu — tinggal tap buat nemenin olahraga."
+        icon={MonitorPlay}
       />
 
       {/* Player */}
-      {activeId ? (
+      {active ? (
         <div className="rounded-[22px] border border-border bg-card p-2.5 md:p-3 overflow-hidden">
           <div className="relative w-full overflow-hidden rounded-[16px]" style={{ aspectRatio: "16 / 9" }}>
             <iframe
-              key={activeId}
-              src={`https://www.youtube.com/embed/videoseries?list=${activeId}&rel=0&autoplay=1`}
-              title="YouTube playlist"
+              key={active.playlistId}
+              src={embedSrc(active.kind, active.playlistId)}
+              title={active.name}
               className="absolute inset-0 h-full w-full"
               allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
               allowFullScreen
@@ -94,26 +124,27 @@ export default function MusikPage() {
       ) : (
         <div className="rounded-[22px] border border-border bg-card flex flex-col items-center justify-center text-center py-12 px-6">
           <div className="h-11 w-11 rounded-[14px] bg-accent text-primary flex items-center justify-center mb-3">
-            <ListMusic size={20} />
+            <ListVideo size={20} />
           </div>
-          <p className="text-sm font-semibold">Belum ada playlist dipilih</p>
+          <p className="text-sm font-semibold">Belum ada yang dipilih</p>
           <p className="text-[12px] text-muted-foreground mt-1 max-w-[280px]">
-            Tambah playlist YouTube-mu di bawah, terus tap buat langsung diputar di sini.
+            Tambah video workout atau playlist YouTube-mu di bawah, terus tap buat langsung diputar di sini.
           </p>
         </div>
       )}
 
-      {/* Daftar playlist tersimpan */}
+      {/* Daftar tersimpan */}
       {playlists.length > 0 && (
         <div className="space-y-2">
           {playlists.map((p) => {
-            const active = p.playlistId === activeId;
+            const activeItem = p.playlistId === activeId;
+            const isVideo = p.kind === "video";
             return (
               <div
                 key={p.id}
                 className={cn(
                   "flex items-center gap-3 rounded-[16px] border p-3 transition-colors",
-                  active ? "border-primary bg-accent" : "border-border bg-card"
+                  activeItem ? "border-primary bg-accent" : "border-border bg-card"
                 )}
               >
                 <button
@@ -123,14 +154,17 @@ export default function MusikPage() {
                   <div
                     className={cn(
                       "h-10 w-10 rounded-[12px] flex items-center justify-center shrink-0",
-                      active ? "bg-primary text-primary-foreground" : "bg-accent text-primary"
+                      activeItem ? "bg-primary text-primary-foreground" : "bg-accent text-primary"
                     )}
                   >
-                    <Play size={16} className={active ? "" : "ml-0.5"} />
+                    <Play size={16} className={activeItem ? "" : "ml-0.5"} />
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold truncate">{p.name}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{active ? "Lagi diputar" : "Tap buat putar"}</p>
+                    <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                      {isVideo ? <ListVideo size={11} /> : <ListMusic size={11} />}
+                      {activeItem ? "Lagi diputar" : isVideo ? "Video · tap buat putar" : "Playlist · tap buat putar"}
+                    </p>
                   </div>
                 </button>
                 <button
@@ -146,19 +180,19 @@ export default function MusikPage() {
         </div>
       )}
 
-      {/* Tambah playlist */}
+      {/* Tambah */}
       <form onSubmit={handleAdd} className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-3">
-        <p className="font-heading font-bold tracking-tight text-[15px]">Tambah playlist</p>
+        <p className="font-heading font-bold tracking-tight text-[15px]">Tambah video / playlist</p>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="Nama — mis. Cardio HIIT 🔥"
+          placeholder="Nama — mis. Cardio 25 menit 🔥"
           className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
         />
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="Link playlist YouTube (yang ada ?list=...)"
+          placeholder="Tempel link YouTube (video atau playlist)"
           className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
         />
         <button
@@ -167,10 +201,11 @@ export default function MusikPage() {
           className="flex items-center justify-center gap-2 w-full h-11 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-50"
         >
           <Plus size={16} />
-          {saving ? "Menyimpan..." : "Simpan playlist"}
+          {saving ? "Menyimpan..." : "Simpan"}
         </button>
         <p className="text-[11px] text-muted-foreground">
-          Buka playlist di YouTube → Share → Copy link, terus tempel di sini. Sekali simpan, next time tinggal tap.
+          Di YouTube: Share → Copy link, terus tempel. Video workout tunggal atau playlist dua-duanya bisa. Sekali
+          simpan, next time tinggal tap.
         </p>
       </form>
     </div>

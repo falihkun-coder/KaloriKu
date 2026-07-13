@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Dumbbell, Plus, Music } from "lucide-react";
+import { Dumbbell, Plus, MonitorPlay } from "lucide-react";
 import { ExerciseEntry, fmtNum } from "@/lib/calculations";
 import { ExerciseRow, EXERCISE_COLOR } from "@/components/exercise/exercise-row";
 import { useStore } from "@/store/useStore";
@@ -33,11 +33,11 @@ export function ExerciseCard({ todayExercises }: { todayExercises: ExerciseEntry
         <div className="flex items-center gap-2 shrink-0">
           <Link
             href="/musik"
-            aria-label="Putar musik olahraga"
-            title="Musik olahraga"
+            aria-label="Video & musik olahraga"
+            title="Video & musik olahraga"
             className="flex items-center justify-center h-9 w-9 rounded-[10px] border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
           >
-            <Music size={15} />
+            <MonitorPlay size={15} />
           </Link>
           <button
             onClick={() => openExerciseDialog()}
