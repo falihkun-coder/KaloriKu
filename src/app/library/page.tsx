@@ -1,17 +1,34 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { BookMarked, Plus, Trash2, UtensilsCrossed, Store, Loader2, Sparkles, X } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
-import { SavedMeal, MealItem, fmtNum, mealLabel } from "@/lib/calculations";
+import {
+  SavedMeal,
+  MealItem,
+  MealCategory,
+  MEAL_CATEGORY_LABELS,
+  MEAL_CATEGORY_ORDER,
+  mealCategoryOf,
+  guessMealCategory,
+  fmtNum,
+} from "@/lib/calculations";
 import { ExtractedFood } from "@/lib/ai-extract";
 import { auth } from "@/lib/firebase";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+const CATEGORY_EMOJI: Record<MealCategory, string> = {
+  makanan: "🍽️",
+  minuman: "🥤",
+  snack: "🍪",
+};
 
 type RestoDraft = {
   name: string;
   restaurant: string;
+  category: MealCategory;
   kcal: string;
   protein: string;
   carbs: string;
@@ -21,10 +38,7 @@ type RestoDraft = {
   items?: MealItem[];
 };
 
-function initials(name: string) {
-  const parts = (name || "").trim().split(/\s+/).slice(0, 2);
-  return parts.map((p) => p[0]).join("").toUpperCase() || "?";
-}
+type CatFilter = "semua" | MealCategory;
 
 export default function LibraryPage() {
   const meals = useStore((state) => state.meals);
@@ -41,15 +55,27 @@ export default function LibraryPage() {
   const [draft, setDraft] = useState<RestoDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
 
-  // Resto yang udah pernah dicatat — buat quick-pick & autocomplete
-  const restoOptions = (() => {
+  // Filter daftar favorit
+  const [catFilter, setCatFilter] = useState<CatFilter>("semua");
+  const [restoFilter, setRestoFilter] = useState<string>("semua");
+
+  // Resto yang udah pernah dicatat — buat quick-pick, autocomplete, & filter
+  const restoOptions = useMemo(() => {
     const counts = new Map<string, number>();
     for (const m of meals) {
       const r = m.restaurant?.trim();
       if (r) counts.set(r, (counts.get(r) || 0) + 1);
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
-  })();
+  }, [meals]);
+
+  const filteredMeals = useMemo(() => {
+    return meals.filter((m) => {
+      if (catFilter !== "semua" && mealCategoryOf(m) !== catFilter) return false;
+      if (restoFilter !== "semua" && (m.restaurant?.trim() || "") !== restoFilter) return false;
+      return true;
+    });
+  }, [meals, catFilter, restoFilter]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,6 +99,7 @@ export default function LibraryPage() {
       setDraft({
         name: menuName.trim(),
         restaurant: restoName.trim(),
+        category: guessMealCategory(menuName.trim()),
         kcal: String(food.kcal),
         protein: String(food.protein_g),
         carbs: String(food.carbs_g),
@@ -96,6 +123,7 @@ export default function LibraryPage() {
       await addMeal({
         name: draft.name,
         restaurant: draft.restaurant,
+        category: draft.category,
         kcal: Number(draft.kcal) || 0,
         protein_g: Number(draft.protein) || 0,
         carbs_g: Number(draft.carbs) || 0,
@@ -228,6 +256,25 @@ export default function LibraryPage() {
               </button>
             </div>
 
+            {/* Kategori — biar gampang difilter nanti */}
+            <div className="flex flex-wrap gap-2">
+              {MEAL_CATEGORY_ORDER.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setDraft({ ...draft, category: c })}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-colors",
+                    draft.category === c
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card text-muted-foreground border-border hover:text-foreground"
+                  )}
+                >
+                  {CATEGORY_EMOJI[c]} {MEAL_CATEGORY_LABELS[c]}
+                </button>
+              ))}
+            </div>
+
             {/* Breakdown per item — bukti AI reference menu yang bener */}
             {draft.items && draft.items.length > 0 && (
               <div className="rounded-[12px] bg-card border border-border px-3.5 py-3">
@@ -304,41 +351,98 @@ export default function LibraryPage() {
           </button>
         </div>
       ) : (
-        <div className="rounded-[22px] border border-border bg-card p-5 md:p-6">
-          <div className="divide-y divide-line-soft">
-            {meals.map((m) => (
-              <div key={m.id} className="flex items-center gap-3 py-3">
-                <div className="h-[42px] w-[42px] rounded-[12px] bg-accent text-primary flex items-center justify-center text-[13px] font-bold shrink-0">
-                  {initials(m.name)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold truncate">
-                    {m.name}
-                    {m.restaurant && <span className="font-medium text-muted-foreground"> · {m.restaurant}</span>}
-                  </p>
-                  <p className="text-[12px] text-muted-foreground truncate mt-0.5">
-                    {fmtNum(m.kcal)} kkal · P {fmtNum(m.protein_g)} · K {fmtNum(m.carbs_g)} · L {fmtNum(m.fat_g)} g
-                    {m.useCount ? ` · ${m.useCount}x dicatat` : ""}
-                  </p>
-                </div>
+        <>
+          {/* Filter: kategori + resto */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex p-1 bg-muted rounded-[12px]">
+              {(["semua", ...MEAL_CATEGORY_ORDER] as CatFilter[]).map((c) => (
                 <button
-                  onClick={() => handleLog(m)}
-                  disabled={busyId === m.id}
-                  className="flex items-center gap-1.5 px-3.5 h-9 rounded-[10px] bg-primary text-primary-foreground text-[12px] font-bold transition-transform active:scale-[0.97] disabled:opacity-50 shrink-0"
+                  key={c}
+                  onClick={() => setCatFilter(c)}
+                  className={cn(
+                    "px-3 py-1.5 rounded-[9px] text-[13px] font-semibold transition-colors",
+                    catFilter === c ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+                  )}
                 >
-                  <Plus size={14} /> Catat
+                  {c === "semua" ? "Semua" : `${CATEGORY_EMOJI[c as MealCategory]} ${MEAL_CATEGORY_LABELS[c as MealCategory]}`}
                 </button>
+              ))}
+            </div>
+
+            {restoOptions.length > 0 && (
+              <div className="flex flex-wrap gap-2">
                 <button
-                  onClick={() => handleDelete(m)}
-                  aria-label={`Hapus ${m.name}`}
-                  className="h-9 w-9 rounded-[10px] border border-border flex items-center justify-center text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors shrink-0"
+                  onClick={() => setRestoFilter("semua")}
+                  className={cn(
+                    "px-3 py-1.5 rounded-full text-[13px] font-medium border transition-colors",
+                    restoFilter === "semua"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card text-muted-foreground border-border hover:text-foreground"
+                  )}
                 >
-                  <Trash2 size={14} />
+                  Semua resto
                 </button>
+                {restoOptions.map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRestoFilter(r)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-full text-[13px] font-medium border transition-colors",
+                      restoFilter === r
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-card text-muted-foreground border-border hover:text-foreground"
+                    )}
+                  >
+                    🏪 {r}
+                  </button>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        </div>
+
+          {filteredMeals.length === 0 ? (
+            <div className="rounded-[22px] border border-border bg-card flex flex-col items-center justify-center text-center py-12 px-6">
+              <p className="text-sm font-semibold">Gak ada favorit di filter ini</p>
+              <p className="text-[12px] text-muted-foreground mt-1">Coba ganti kategori atau resto.</p>
+            </div>
+          ) : (
+            <div className="rounded-[22px] border border-border bg-card p-5 md:p-6">
+              <div className="divide-y divide-line-soft">
+                {filteredMeals.map((m) => (
+                  <div key={m.id} className="flex items-center gap-3 py-3">
+                    <div className="h-[42px] w-[42px] rounded-[12px] bg-accent text-primary flex items-center justify-center text-[15px] shrink-0">
+                      {CATEGORY_EMOJI[mealCategoryOf(m)]}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold truncate">
+                        {m.name}
+                        {m.restaurant && <span className="font-medium text-muted-foreground"> · {m.restaurant}</span>}
+                      </p>
+                      <p className="text-[12px] text-muted-foreground truncate mt-0.5">
+                        {fmtNum(m.kcal)} kkal · P {fmtNum(m.protein_g)} · K {fmtNum(m.carbs_g)} · L {fmtNum(m.fat_g)} g
+                        {m.useCount ? ` · ${m.useCount}x dicatat` : ""}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleLog(m)}
+                      disabled={busyId === m.id}
+                      className="flex items-center gap-1.5 px-3.5 h-9 rounded-[10px] bg-primary text-primary-foreground text-[12px] font-bold transition-transform active:scale-[0.97] disabled:opacity-50 shrink-0"
+                    >
+                      <Plus size={14} /> Catat
+                    </button>
+                    <button
+                      onClick={() => handleDelete(m)}
+                      aria-label={`Hapus ${m.name}`}
+                      className="h-9 w-9 rounded-[10px] border border-border flex items-center justify-center text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

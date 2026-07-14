@@ -22,6 +22,7 @@ import {
   DEFAULT_GOALS,
   dateKeyWIB,
   mealLabel,
+  guessMealCategory,
 } from "@/lib/calculations";
 
 export type AiUsageStats = {
@@ -392,7 +393,12 @@ export const useStore = create<AppState>((set, get) => ({
       );
       if (exists) return;
 
-      const newMeal = { ...meal, userId: state.userId, useCount: 0 };
+      const newMeal = {
+        ...meal,
+        category: meal.category ?? guessMealCategory(meal.name),
+        userId: state.userId,
+        useCount: 0,
+      };
       const docRef = await addDoc(collection(db, "meals"), newMeal);
       set({ meals: [...state.meals, { id: docRef.id, ...newMeal } as SavedMeal] });
     } catch (error) {

@@ -93,6 +93,16 @@ export function burnedToday(exercises: ExerciseEntry[]): number {
   return burnedOn(exercises, dateKeyWIB());
 }
 
+export type MealCategory = "makanan" | "minuman" | "snack";
+
+export const MEAL_CATEGORY_LABELS: Record<MealCategory, string> = {
+  makanan: "Makanan",
+  minuman: "Minuman",
+  snack: "Snack",
+};
+
+export const MEAL_CATEGORY_ORDER: MealCategory[] = ["makanan", "minuman", "snack"];
+
 /** Makanan favorit di library — 1-tap log tanpa AI (brief §7 ide 2, §11 mitigasi biaya). */
 export type SavedMeal = {
   id: string;
@@ -100,6 +110,8 @@ export type SavedMeal = {
   name: string;
   /** Nama resto/warung kalau ini menu resto (diisi AI lookup) */
   restaurant?: string;
+  /** makanan | minuman | snack — buat filter library */
+  category?: MealCategory;
   kcal: number;
   protein_g: number;
   carbs_g: number;
@@ -109,6 +121,26 @@ export type SavedMeal = {
   items?: MealItem[];
   useCount?: number;
 };
+
+// Tebak kategori dari nama — buat default + biar data lama tetap kefilter
+// tanpa migrasi (dipanggil saat filter kalau category belum keisi).
+export function guessMealCategory(name: string): MealCategory {
+  const s = (name || "").toLowerCase();
+  if (
+    /(kopi|coffee|latte|americano|cappuccino|espresso|\bteh\b|thai tea|lemon tea|\bjus\b|juice|smoothie|milkshake|susu|\bmilk\b|matcha|boba|\bsoda\b|cola|coke|sprite|fanta|\bair\b|\bwater\b|mineral|infus|\bbir\b|beer|wine|\bes teh\b|\bes jeruk\b|minuman)/.test(s)
+  )
+    return "minuman";
+  if (
+    /(keripik|kerupuk|\bsnack\b|biskuit|biscuit|cookie|wafer|coklat|chocolate|permen|donat|donut|\bkue\b|\bcake\b|gorengan|es krim|ice cream|pudding|puding|roti bakar|pastry)/.test(s)
+  )
+    return "snack";
+  return "makanan";
+}
+
+/** Kategori efektif: pakai yang tersimpan, atau tebak dari nama (data lama). */
+export function mealCategoryOf(m: Pick<SavedMeal, "name" | "category">): MealCategory {
+  return m.category ?? guessMealCategory(m.name);
+}
 
 /** Label tampilan favorit: "Nama (Resto)" kalau ada restonya. */
 export function mealLabel(m: Pick<SavedMeal, "name" | "restaurant">): string {
