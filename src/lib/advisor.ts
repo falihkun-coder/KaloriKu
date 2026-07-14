@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
-import { AiUsage } from "@/lib/ai-pricing";
+import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
 import { readUsage } from "@/lib/ai-extract";
 
 export type MealSuggestion = {
@@ -24,7 +24,7 @@ export async function suggestMeals(
 
   const r = remaining(goals, consumedToday, burned);
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const prompt = `
     You are a friendly Indonesian nutritionist. The user has these targets LEFT for today:

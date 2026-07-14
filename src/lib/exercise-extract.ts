@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ExerciseType } from "@/lib/calculations";
-import { AiUsage } from "@/lib/ai-pricing";
+import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
 import { readUsage } from "@/lib/ai-extract";
 
 export type ExtractedExercise = {
@@ -21,7 +21,7 @@ export async function estimateExercise(text: string, weightKg?: number): Promise
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const prompt = `
     You are a fitness coach. Estimate calories burned for this Indonesian workout description: "${text}".

@@ -2,7 +2,7 @@
 
 import { Sparkles } from "lucide-react";
 import { useStore } from "@/store/useStore";
-import { estimateCostIdr, fmtIdr, USD_TO_IDR } from "@/lib/ai-pricing";
+import { estimateCostIdr, fmtIdr, USD_TO_IDR, GEMINI_MODEL } from "@/lib/ai-pricing";
 import { fmtNum } from "@/lib/calculations";
 
 export function AiUsageCard() {
@@ -45,7 +45,7 @@ export function AiUsageCard() {
       </div>
 
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        ⚠️ Estimasi kasar pakai tarif <span className="font-mono">gemini-2.5-flash</span> (kurs $1≈Rp{fmtNum(USD_TO_IDR)}).
+        ⚠️ Estimasi kasar pakai tarif <span className="font-mono">{GEMINI_MODEL}</span> (kurs $1≈Rp{fmtNum(USD_TO_IDR)}).
         Angka pastinya cek Google Cloud Billing — Google punya porsi gratis & diskon cache. Cuma ngitung pemakaian
         dari KaloriKu (API key-nya dibagi sama Spending Tracker).
       </p>

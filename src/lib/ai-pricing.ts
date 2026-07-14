@@ -1,14 +1,19 @@
 // Client-safe (tanpa firebase-admin) — dipakai UI buat estimasi biaya AI.
 export type AiUsage = { inputTokens: number; outputTokens: number };
 
+// Satu-satunya tempat nentuin model Gemini — semua fitur AI nyontek dari sini.
+// Ganti model? cukup edit baris ini.
+export const GEMINI_MODEL = "gemini-3.5-flash";
+
 export type AiUsageStats = {
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
 };
 
-// Tarif gemini-2.5-flash (USD per 1 juta token). ESTIMASI — sumber kebenaran
-// tetap Google Cloud Billing (ada porsi gratis, diskon cache, tarif audio beda).
+// Tarif Gemini Flash (USD per 1 juta token). ESTIMASI — sumber kebenaran tetap
+// Google Cloud Billing (ada porsi gratis, diskon cache, tarif audio beda).
+// Kalau ganti model (GEMINI_MODEL), cek & sesuaikan tarif di bawah kalau beda.
 export const GEMINI_FLASH_INPUT_USD_PER_M = 0.3;
 export const GEMINI_FLASH_OUTPUT_USD_PER_M = 2.5;
 

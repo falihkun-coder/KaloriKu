@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MealType, MealItem } from "@/lib/calculations";
-import { AiUsage } from "@/lib/ai-pricing";
+import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
 
 export type ExtractedFood = {
   name: string;
@@ -55,7 +55,7 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
 
   const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const inputKind = input.imageBase64
     ? "food image (or nutrition label photo)"
