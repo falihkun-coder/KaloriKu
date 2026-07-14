@@ -92,6 +92,8 @@ interface AppState {
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
   addMeal: (meal: Omit<SavedMeal, "id" | "useCount">) => Promise<void>;
+  /** Edit favorit yang udah tersimpan (nama, resto, kategori, kalori, makro). */
+  updateMeal: (id: string, patch: Partial<Omit<SavedMeal, "id" | "userId">>) => Promise<void>;
   deleteMeal: (id: string) => Promise<void>;
   /** 1-tap log: catat favorit sebagai entri makan sekarang. */
   logMeal: (meal: SavedMeal) => Promise<void>;
@@ -403,6 +405,21 @@ export const useStore = create<AppState>((set, get) => ({
       set({ meals: [...state.meals, { id: docRef.id, ...newMeal } as SavedMeal] });
     } catch (error) {
       console.error("Error adding meal:", error);
+      throw error;
+    }
+  },
+
+  updateMeal: async (id, patch) => {
+    const state = get();
+    const prev = state.meals.find((m) => m.id === id);
+    if (!prev) return;
+    // Optimistic — langsung update UI, rollback kalau Firestore gagal
+    set({ meals: state.meals.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
+    try {
+      await updateDoc(doc(db, "meals", id), patch);
+    } catch (error) {
+      console.error("Error updating meal:", error);
+      set({ meals: get().meals.map((m) => (m.id === id ? prev : m)) });
       throw error;
     }
   },
