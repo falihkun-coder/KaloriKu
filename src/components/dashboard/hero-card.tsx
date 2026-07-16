@@ -7,6 +7,7 @@ import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
 export function HeroCard({ goals, consumed, burned = 0 }: { goals: Goals; consumed: MacroTotals; burned?: number }) {
   const r = remaining(goals, consumed, burned);
   const pct = Math.min(100, Math.max(0, r.pctUsed));
+  const netIntake = consumed.kcal - burned; // makanan − olahraga
 
   return (
     <div className="relative overflow-hidden rounded-[26px] bg-primary text-primary-foreground p-6 md:p-7 shadow-[0_18px_44px_var(--accent-shadow)]">
@@ -27,28 +28,28 @@ export function HeroCard({ goals, consumed, burned = 0 }: { goals: Goals; consum
           )}
         </div>
 
-        <div className="flex flex-wrap items-start gap-x-9 gap-y-3 mt-3">
-          {/* Sisa kalori (budget, sudah termasuk olahraga) */}
+        <div className="flex flex-wrap items-end gap-x-9 gap-y-3 mt-3">
+          {/* Net kalori masuk = makanan − olahraga (HERO) */}
           <div>
-            <p className="text-[12px] font-medium text-white/70">Sisa kalori</p>
+            <p className="text-[12px] font-medium text-white/70">
+              Net kalori masuk{burned > 0 ? " (− olahraga)" : ""}
+            </p>
             <p className="font-heading font-bold tabular-nums tracking-tight text-[clamp(38px,6.5vw,54px)] leading-none mt-0.5">
+              {fmtNum(netIntake)}
+              <span className="text-[16px] font-semibold text-white/75 ml-2">kkal</span>
+            </p>
+          </div>
+
+          {/* Sisa kalori (budget, sudah termasuk olahraga) — sekunder */}
+          <div className="pl-0 sm:pl-9 sm:border-l sm:border-white/20">
+            <p className="text-[12px] font-medium text-white/70">Sisa kalori</p>
+            <p className="font-heading font-bold tabular-nums tracking-tight text-[clamp(26px,4vw,34px)] leading-none mt-0.5">
               {fmtNum(Math.abs(r.kcal))}
-              <span className="text-[16px] font-semibold text-white/75 ml-2">
+              <span className="text-[14px] font-semibold text-white/75 ml-1.5">
                 {r.over ? "kkal lebih" : "kkal lagi"}
               </span>
             </p>
           </div>
-
-          {/* Net kalori masuk = makanan − olahraga */}
-          {burned > 0 && (
-            <div className="pl-0 sm:pl-9 sm:border-l sm:border-white/20">
-              <p className="text-[12px] font-medium text-white/70">Net masuk (− olahraga)</p>
-              <p className="font-heading font-bold tabular-nums tracking-tight text-[clamp(38px,6.5vw,54px)] leading-none mt-0.5">
-                {fmtNum(consumed.kcal - burned)}
-                <span className="text-[16px] font-semibold text-white/75 ml-2">kkal</span>
-              </p>
-            </div>
-          )}
         </div>
 
         <p className="text-[13px] text-white/75 mt-3">
