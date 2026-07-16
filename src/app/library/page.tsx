@@ -67,6 +67,7 @@ export default function LibraryPage() {
   const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState<RestoDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
 
   // Filter daftar favorit
   const [catFilter, setCatFilter] = useState<CatFilter>("semua");
@@ -156,6 +157,75 @@ export default function LibraryPage() {
       toast.error("Gagal simpan ke favorit");
     } finally {
       setSavingDraft(false);
+    }
+  };
+
+  // Kalori total draft selalu ngikut jumlah item (biar konsisten pas disimpan)
+  const setDraftItems = (items: MealItem[]) => {
+    setDraft((d) =>
+      d
+        ? { ...d, items, ...(items.length > 0 && { kcal: String(items.reduce((s, it) => s + it.kcal, 0)) }) }
+        : d
+    );
+  };
+
+  const updateDraftItem = (i: number, patch: Partial<MealItem>) => {
+    if (!draft?.items) return;
+    setDraftItems(draft.items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+  };
+
+  const removeDraftItem = (i: number) => {
+    if (!draft?.items) return;
+    setDraftItems(draft.items.filter((_, idx) => idx !== i));
+  };
+
+  const addDraftItem = () => {
+    if (!draft) return;
+    setDraftItems([...(draft.items || []), { name: "", kcal: 0 }]);
+  };
+
+  // Analisa ulang paket yang udah dicustom — AI hitung ulang kalori tiap item + makro total
+  const handleReanalyze = async () => {
+    if (!draft) return;
+    const items = (draft.items || []).filter((it) => it.name.trim());
+    if (items.length === 0) {
+      toast.error("Isi dulu itemnya sebelum dianalisa ulang");
+      return;
+    }
+    setReanalyzing(true);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const isiPaket = items.map((it) => `- ${it.name.trim()}`).join("\n");
+      const res = await fetch("/api/scan-food", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          text: `Paket "${draft.name}"${draft.restaurant ? ` dari "${draft.restaurant}"` : ""} yang isinya persis seperti ini:\n${isiPaket}\n\nHitung ULANG kalori tiap item sesuai isi di atas, plus total protein/karbo/lemak buat kombinasi ini. Kembalikan breakdown per item.`,
+        }),
+      });
+      if (!res.ok) throw new Error(`reanalyze failed: ${res.status}`);
+      const { food } = (await res.json()) as { food: ExtractedFood };
+      setDraft((d) =>
+        d
+          ? {
+              ...d,
+              kcal: String(food.kcal),
+              protein: String(food.protein_g),
+              carbs: String(food.carbs_g),
+              fat: String(food.fat_g),
+              portion: food.portion || d.portion,
+              confidence: food.confidence,
+              // pakai breakdown baru kalau ada; kalau tinggal 1 item, breakdown ilang
+              items: food.items && food.items.length > 0 ? food.items : undefined,
+            }
+          : d
+      );
+      toast.success("Paket dianalisa ulang ✨");
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal analisa ulang — coba lagi");
+    } finally {
+      setReanalyzing(false);
     }
   };
 
@@ -333,27 +403,80 @@ export default function LibraryPage() {
               ))}
             </div>
 
-            {/* Breakdown per item — bukti AI reference menu yang bener */}
+            {/* Breakdown paket — bisa dicustom (ganti/tambah/hapus item) lalu analisa ulang */}
             {draft.items && draft.items.length > 0 && (
               <div className="rounded-[12px] bg-card border border-border px-3.5 py-3">
-                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
-                  Breakdown paket
-                </p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    Isi paket — bisa diubah
+                  </p>
+                  <span className="text-[11px] font-bold tabular-nums text-muted-foreground">
+                    Total {fmtNum(draft.items.reduce((s, it) => s + (Number(it.kcal) || 0), 0))} kkal
+                  </span>
+                </div>
                 <div className="space-y-1.5">
                   {draft.items.map((it, i) => (
-                    <div key={i} className="flex items-center justify-between gap-2 text-[13px]">
-                      <span className="text-foreground">{it.name}</span>
-                      <span className="font-semibold tabular-nums shrink-0">{fmtNum(it.kcal)} kkal</span>
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        value={it.name}
+                        onChange={(e) => updateDraftItem(i, { name: e.target.value })}
+                        placeholder="mis. 1 minuman soft drink medium"
+                        className="min-w-0 flex-1 rounded-[9px] bg-background border border-border px-2.5 py-1.5 text-[13px] outline-none focus:border-primary transition-colors"
+                      />
+                      <div className="flex items-center gap-1 shrink-0">
+                        <input
+                          type="number"
+                          min="0"
+                          value={it.kcal || ""}
+                          onChange={(e) => updateDraftItem(i, { kcal: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+                          className="w-[64px] rounded-[9px] bg-background border border-border px-2 py-1.5 text-[13px] text-right tabular-nums outline-none focus:border-primary transition-colors"
+                        />
+                        <span className="text-[11px] text-muted-foreground">kkal</span>
+                        <button
+                          type="button"
+                          onClick={() => removeDraftItem(i)}
+                          aria-label={`Hapus ${it.name || "item"}`}
+                          className="h-7 w-7 rounded-[8px] flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between gap-2 text-[13px] pt-1.5 border-t border-line-soft">
-                    <span className="font-semibold">Total</span>
-                    <span className="font-bold tabular-nums">
-                      {fmtNum(draft.items.reduce((s, it) => s + it.kcal, 0))} kkal
-                    </span>
-                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={addDraftItem}
+                    className="flex items-center gap-1.5 px-3 h-8 rounded-[9px] border border-border text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                  >
+                    <Plus size={13} /> Tambah item
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReanalyze}
+                    disabled={reanalyzing}
+                    className="flex items-center gap-1.5 px-3 h-8 rounded-[9px] bg-primary text-primary-foreground text-[12px] font-semibold transition-transform active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {reanalyzing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    {reanalyzing ? "Menganalisa..." : "Analisa ulang"}
+                  </button>
+                  <span className="text-[11px] text-muted-foreground">
+                    Ganti/tambah item, terus analisa ulang biar AI hitung ulang kalori & makronya.
+                  </span>
                 </div>
               </div>
+            )}
+
+            {/* Jadikan paket kalau AI cuma kasih 1 angka (biar bisa dicustom jadi combo) */}
+            {(!draft.items || draft.items.length === 0) && (
+              <button
+                type="button"
+                onClick={addDraftItem}
+                className="flex items-center gap-1.5 px-3 h-8 rounded-[9px] border border-dashed border-border text-[12px] font-semibold text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+              >
+                <Plus size={13} /> Pecah jadi paket / combo
+              </button>
             )}
 
             <div className="grid grid-cols-4 gap-2">
