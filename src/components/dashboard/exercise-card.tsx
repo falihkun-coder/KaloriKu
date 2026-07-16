@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Dumbbell, Plus, MonitorPlay } from "lucide-react";
+import { Dumbbell, Plus, MonitorPlay, CalendarDays } from "lucide-react";
 import { ExerciseEntry, fmtNum } from "@/lib/calculations";
 import { ExerciseRow, EXERCISE_COLOR } from "@/components/exercise/exercise-row";
 import { useStore } from "@/store/useStore";
@@ -31,6 +31,14 @@ export function ExerciseCard({ todayExercises }: { todayExercises: ExerciseEntry
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <Link
+            href="/jadwal"
+            aria-label="Jadwal olahraga"
+            title="Jadwal olahraga"
+            className="flex items-center justify-center h-9 w-9 rounded-[10px] border border-border text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+          >
+            <CalendarDays size={15} />
+          </Link>
           <Link
             href="/musik"
             aria-label="Video & musik olahraga"

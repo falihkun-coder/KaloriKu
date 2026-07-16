@@ -208,6 +208,81 @@ export function shiftDateKey(dateKey: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// ===== Jadwal olahraga mingguan (rencana latihan Falih) =====
+
+export type DayKey = "sen" | "sel" | "rab" | "kam" | "jum" | "sab" | "min";
+export const WEEKDAY_ORDER: DayKey[] = ["sen", "sel", "rab", "kam", "jum", "sab", "min"];
+export const WEEKDAY_LABELS: Record<DayKey, string> = {
+  sen: "Senin",
+  sel: "Selasa",
+  rab: "Rabu",
+  kam: "Kamis",
+  jum: "Jumat",
+  sab: "Sabtu",
+  min: "Minggu",
+};
+export const WEEKDAY_SHORT: Record<DayKey, string> = {
+  sen: "Sen",
+  sel: "Sel",
+  rab: "Rab",
+  kam: "Kam",
+  jum: "Jum",
+  sab: "Sab",
+  min: "Min",
+};
+
+/** Hari ini (WIB) sebagai DayKey — buat highlight jadwal. */
+export function todayDayKey(input: Date = new Date()): DayKey {
+  const wib = new Date(input.getTime() + WIB_OFFSET_MS);
+  const map: DayKey[] = ["min", "sen", "sel", "rab", "kam", "jum", "sab"]; // getUTCDay: 0=Min
+  return map[wib.getUTCDay()];
+}
+
+export type WorkoutType = "full-body" | "cardio" | "badminton" | "jalan" | "rest" | "lainnya";
+export const WORKOUT_LABELS: Record<WorkoutType, string> = {
+  "full-body": "Full Body",
+  cardio: "Cardio",
+  badminton: "Badminton",
+  jalan: "Jalan / Tangga",
+  rest: "Rest",
+  lainnya: "Lainnya",
+};
+export const WORKOUT_EMOJI: Record<WorkoutType, string> = {
+  "full-body": "💪",
+  cardio: "🏃",
+  badminton: "🏸",
+  jalan: "🚶",
+  rest: "😴",
+  lainnya: "🤸",
+};
+export const WORKOUT_ORDER: WorkoutType[] = ["full-body", "cardio", "badminton", "jalan", "rest", "lainnya"];
+
+export type ScheduleDay = { type: WorkoutType; note?: string };
+export type WorkoutSchedule = { userId?: string; days: Record<DayKey, ScheduleDay> };
+
+// Default: 3x Full Body/minggu (rencana) + hari tetap Falih (Sen cardio, Sel badminton, Rab rest).
+export const DEFAULT_WORKOUT_SCHEDULE: WorkoutSchedule = {
+  days: {
+    sen: { type: "cardio" },
+    sel: { type: "badminton" },
+    rab: { type: "rest" },
+    kam: { type: "full-body" },
+    jum: { type: "full-body" },
+    sab: { type: "full-body" },
+    min: { type: "rest" },
+  },
+};
+
+/** WorkoutType → ExerciseType buat prefill dialog catat olahraga. */
+export const WORKOUT_TO_EXERCISE: Record<WorkoutType, ExerciseType> = {
+  "full-body": "beban",
+  cardio: "kardio",
+  badminton: "kardio",
+  jalan: "jalan",
+  rest: "lainnya",
+  lainnya: "lainnya",
+};
+
 export function entriesForDay(entries: FoodEntry[], dateKey: string): FoodEntry[] {
   return entries.filter((e) => dateKeyWIB(e.createdAt) === dateKey);
 }

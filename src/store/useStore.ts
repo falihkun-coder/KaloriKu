@@ -19,7 +19,11 @@ import {
   WaterLog,
   SavedMeal,
   ExerciseEntry,
+  WorkoutSchedule,
+  ScheduleDay,
+  DayKey,
   DEFAULT_GOALS,
+  DEFAULT_WORKOUT_SCHEDULE,
   dateKeyWIB,
   mealLabel,
   guessMealCategory,
@@ -59,6 +63,7 @@ interface AppState {
   meals: SavedMeal[];
   exercises: ExerciseEntry[];
   playlists: Playlist[];
+  schedule: WorkoutSchedule;
   aiUsage: AiUsageStats;
   profile: UserProfile;
   isLoading: boolean;
@@ -88,6 +93,8 @@ interface AppState {
   deleteExercise: (id: string) => Promise<void>;
   addPlaylist: (p: Omit<Playlist, "id">) => Promise<void>;
   deletePlaylist: (id: string) => Promise<void>;
+  /** Set aktivitas 1 hari di jadwal olahraga mingguan (persist per-user). */
+  setScheduleDay: (day: DayKey, data: ScheduleDay) => Promise<void>;
   /** Tambah air minum hari ini (ml). */
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
@@ -116,6 +123,7 @@ export const useStore = create<AppState>((set, get) => ({
   meals: [],
   exercises: [],
   playlists: [],
+  schedule: DEFAULT_WORKOUT_SCHEDULE,
   aiUsage: { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 },
   profile: {},
   isLoading: false,
@@ -145,6 +153,7 @@ export const useStore = create<AppState>((set, get) => ({
       const goalsDocRef = doc(db, "goals", currentUid);
       const userDocRef = doc(db, "users", currentUid);
       const aiUsageDocRef = doc(db, "aiUsage", currentUid);
+      const scheduleDocRef = doc(db, "workoutSchedule", currentUid);
 
       const [
         entrySnapshot,
@@ -156,6 +165,7 @@ export const useStore = create<AppState>((set, get) => ({
         goalsDocSnap,
         userDocSnap,
         aiUsageDocSnap,
+        scheduleDocSnap,
       ] = await Promise.all([
         getDocs(entryQuery),
         getDocs(weightQuery),
@@ -166,6 +176,7 @@ export const useStore = create<AppState>((set, get) => ({
         getDoc(goalsDocRef),
         getDoc(userDocRef),
         getDoc(aiUsageDocRef),
+        getDoc(scheduleDocRef),
       ]);
 
       const entries = sortByCreatedDesc(
@@ -217,7 +228,14 @@ export const useStore = create<AppState>((set, get) => ({
           }
         : { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 };
 
-      set({ entries, weights, waterLogs, meals, exercises, playlists, aiUsage, goals, profile, isLoading: false });
+      // Jadwal olahraga: merge default (biar hari yang belum diisi tetap ada) dgn data user
+      let schedule: WorkoutSchedule = { ...DEFAULT_WORKOUT_SCHEDULE, userId: currentUid };
+      if (scheduleDocSnap.exists()) {
+        const saved = scheduleDocSnap.data() as WorkoutSchedule;
+        schedule = { userId: currentUid, days: { ...DEFAULT_WORKOUT_SCHEDULE.days, ...(saved.days || {}) } };
+      }
+
+      set({ entries, weights, waterLogs, meals, exercises, playlists, schedule, aiUsage, goals, profile, isLoading: false });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -367,6 +385,23 @@ export const useStore = create<AppState>((set, get) => ({
       set({ playlists: state.playlists.filter((p) => p.id !== id) });
     } catch (error) {
       console.error("Error deleting playlist:", error);
+      throw error;
+    }
+  },
+
+  setScheduleDay: async (day, data) => {
+    const state = get();
+    if (!state.userId) throw new Error("User not authenticated");
+    const prev = state.schedule;
+    // buang note undefined biar Firestore gak nolak
+    const clean: ScheduleDay = data.note?.trim() ? { type: data.type, note: data.note.trim() } : { type: data.type };
+    const next: WorkoutSchedule = { userId: state.userId, days: { ...prev.days, [day]: clean } };
+    set({ schedule: next }); // optimistic
+    try {
+      await setDoc(doc(db, "workoutSchedule", state.userId), next);
+    } catch (error) {
+      console.error("Error saving schedule:", error);
+      set({ schedule: prev });
       throw error;
     }
   },

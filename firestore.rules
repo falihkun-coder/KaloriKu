@@ -41,6 +41,9 @@ service cloud.firestore {
     match /goals/{uid} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
+    match /workoutSchedule/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
     // Pemakaian AI: client cuma baca punya sendiri; ditulis webhook/route via Admin SDK.
     match /aiUsage/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
