@@ -200,7 +200,7 @@ export default function LibraryPage() {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
-          text: `Paket "${draft.name}"${draft.restaurant ? ` dari "${draft.restaurant}"` : ""} yang isinya persis seperti ini:\n${isiPaket}\n\nHitung ULANG kalori tiap item sesuai isi di atas, plus total protein/karbo/lemak buat kombinasi ini. Kembalikan breakdown per item.`,
+          text: `Paket "${draft.name}"${draft.restaurant ? ` dari "${draft.restaurant}"` : ""} yang isinya persis seperti ini:\n${isiPaket}\n\nHitung ULANG kalori tiap item sesuai isi di atas, plus total protein/karbo/lemak buat kombinasi ini. Sertakan SEMUA item di atas di breakdown, termasuk yang 0 kalori (mis. minuman diet/zero). Kembalikan breakdown per item.`,
         }),
       });
       if (!res.ok) throw new Error(`reanalyze failed: ${res.status}`);

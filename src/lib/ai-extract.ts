@@ -83,7 +83,9 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     confidence (number 0-1),
     items (OPTIONAL array — ONLY when the food is a combo/paket/set or multiple foods:
       [{ "name": string in Indonesian INCLUDING quantity e.g. "2 ayam goreng" / "nasi large" / "cola medium", "kcal": number }].
-      The per-item kcal MUST sum up to the total kcal. Omit items entirely for a single simple food.)
+      The per-item kcal MUST sum up to the total kcal. Keep ZERO-calorie items in the list too
+      (e.g. "coca cola zero", "diet coke", "air putih", "teh tawar", "kopi hitam" → kcal: 0) — do NOT drop them.
+      Omit the items array entirely only for a single simple food.)
   `;
 
   const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [{ text: prompt }];
@@ -101,15 +103,16 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
 
   const meal: MealType = VALID_MEALS.includes(parsed.meal) ? parsed.meal : currentMealWIB();
 
-  // Breakdown per item: total selalu = jumlah item biar angkanya bisa dicek user
+  // Breakdown per item: total selalu = jumlah item biar angkanya bisa dicek user.
+  // Item 0 kkal tetap disimpan (mis. minuman diet/zero, air putih) — asal ada namanya.
   let items: MealItem[] | undefined;
   if (Array.isArray(parsed.items) && parsed.items.length > 1) {
     items = parsed.items
       .map((it: { name?: unknown; kcal?: unknown }) => ({
-        name: String(it.name || "Item").slice(0, 60),
+        name: String(it.name ?? "").trim().slice(0, 60),
         kcal: Math.max(0, Math.round(Number(it.kcal) || 0)),
       }))
-      .filter((it: MealItem) => it.kcal > 0)
+      .filter((it: MealItem) => it.name.length > 0)
       .slice(0, 12);
     if (items && items.length < 2) items = undefined;
   }
