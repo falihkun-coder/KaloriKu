@@ -21,6 +21,7 @@ import {
   fmtNum,
 } from "@/lib/calculations";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type Period = "7d" | "30d" | "all";
 type View = "makan" | "olahraga";
@@ -68,6 +69,28 @@ export default function RiwayatPage() {
   const exercises = useStore((state) => state.exercises);
   const openFoodDialog = useStore((state) => state.openFoodDialog);
   const openExerciseDialog = useStore((state) => state.openExerciseDialog);
+  const addEntry = useStore((state) => state.addEntry);
+
+  // Catat lagi entri lama sebagai makan hari ini (1-tap) — meal type & detail ikut
+  const handleRepeat = async (e: FoodEntry) => {
+    try {
+      await addEntry({
+        name: e.name,
+        kcal: e.kcal,
+        protein_g: e.protein_g,
+        carbs_g: e.carbs_g,
+        fat_g: e.fat_g,
+        portion: e.portion || "1 porsi",
+        meal: e.meal,
+        source: "manual",
+        ...(e.items && e.items.length > 0 && { items: e.items }),
+        createdAt: new Date().toISOString(),
+      });
+      toast.success(`${e.name} dicatat lagi buat hari ini! 🍽️`);
+    } catch {
+      toast.error("Gagal catat ulang");
+    }
+  };
 
   const [view, setView] = useState<View>("makan");
   const [period, setPeriod] = useState<Period>("7d");
@@ -287,7 +310,12 @@ export default function RiwayatPage() {
                 </div>
                 <div className="divide-y divide-line-soft">
                   {dayEntries.map((e) => (
-                    <FoodRow key={e.id} entry={e} onClick={() => openFoodDialog(e)} />
+                    <FoodRow
+                      key={e.id}
+                      entry={e}
+                      onClick={() => openFoodDialog(e)}
+                      onRepeat={() => handleRepeat(e)}
+                    />
                   ))}
                 </div>
               </div>

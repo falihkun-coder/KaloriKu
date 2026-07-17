@@ -1,7 +1,7 @@
 "use client";
 
 import { FoodEntry, MealType, MEAL_LABELS, fmtNum } from "@/lib/calculations";
-import { Bot, ScanLine } from "lucide-react";
+import { Bot, ScanLine, Plus } from "lucide-react";
 
 const MEAL_COLOR: Record<MealType, string> = {
   sarapan: "var(--meal-sarapan)",
@@ -16,7 +16,16 @@ function initials(name: string) {
   return i || "?";
 }
 
-export function FoodRow({ entry, onClick }: { entry: FoodEntry; onClick?: () => void }) {
+export function FoodRow({
+  entry,
+  onClick,
+  onRepeat,
+}: {
+  entry: FoodEntry;
+  onClick?: () => void;
+  /** Kalau ada, munculin tombol "catat lagi buat hari ini". */
+  onRepeat?: () => void;
+}) {
   const color = MEAL_COLOR[entry.meal] || "var(--meal-snack)";
   const time = new Date(entry.createdAt).toLocaleTimeString("id-ID", {
     hour: "2-digit",
@@ -54,6 +63,20 @@ export function FoodRow({ entry, onClick }: { entry: FoodEntry; onClick?: () => 
       <span className="text-sm font-bold tabular-nums shrink-0 text-foreground">
         {fmtNum(entry.kcal)} <span className="text-[11px] font-semibold text-muted-foreground">kkal</span>
       </span>
+
+      {onRepeat && (
+        <button
+          onClick={(ev) => {
+            ev.stopPropagation();
+            onRepeat();
+          }}
+          aria-label={`Catat lagi ${entry.name} buat hari ini`}
+          title="Catat lagi buat hari ini"
+          className="h-8 w-8 rounded-[10px] border border-border flex items-center justify-center text-muted-foreground hover:text-primary-foreground hover:bg-primary hover:border-primary transition-colors shrink-0"
+        >
+          <Plus size={15} />
+        </button>
+      )}
     </div>
   );
 }
