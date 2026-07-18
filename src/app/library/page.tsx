@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookMarked, Plus, Trash2, UtensilsCrossed, Store, Loader2, Sparkles, X, Pencil } from "lucide-react";
+import { BookMarked, Plus, Trash2, UtensilsCrossed, Store, Loader2, Sparkles, X, Pencil, ChefHat } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import {
@@ -61,9 +61,11 @@ export default function LibraryPage() {
   const openFoodDialog = useStore((state) => state.openFoodDialog);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  // Tambah menu resto: AI cariin nutrisinya dari nama menu + resto
+  // Tambah menu: mode "resto" (nama + resto) atau "original" (nama + bahan-bahan)
+  const [addMode, setAddMode] = useState<"resto" | "original">("resto");
   const [menuName, setMenuName] = useState("");
   const [restoName, setRestoName] = useState("");
+  const [ingredients, setIngredients] = useState("");
   const [searching, setSearching] = useState(false);
   const [draft, setDraft] = useState<RestoDraft | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
@@ -97,26 +99,32 @@ export default function LibraryPage() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!menuName.trim() || !restoName.trim()) {
+    if (addMode === "resto" && (!menuName.trim() || !restoName.trim())) {
       toast.error("Isi nama menu + nama restonya dulu");
+      return;
+    }
+    if (addMode === "original" && (!menuName.trim() || !ingredients.trim())) {
+      toast.error("Isi nama menu + bahan-bahannya dulu");
       return;
     }
     setSearching(true);
     setDraft(null);
     try {
       const idToken = await auth.currentUser?.getIdToken();
+      const text =
+        addMode === "resto"
+          ? `Menu "${menuName.trim()}" dari restoran/warung "${restoName.trim()}" — 1 porsi standar menu resto tersebut. Kalau kamu tahu menu resto ini (mis. chain besar), pakai data resminya.`
+          : `Masakan/menu buatan sendiri "${menuName.trim()}" dengan bahan-bahan berikut:\n${ingredients.trim()}\n\nHitung nutrisi TOTAL dari komposisi bahan di atas (ini masakan rumahan, BUKAN menu resto). Kalau ada takaran (gram/ml/sdm/butir/potong), pakai persis takaran itu. Kasih breakdown per bahan/komponen di items[].`;
       const res = await fetch("/api/scan-food", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({
-          text: `Menu "${menuName.trim()}" dari restoran/warung "${restoName.trim()}" — 1 porsi standar menu resto tersebut. Kalau kamu tahu menu resto ini (mis. chain besar), pakai data resminya.`,
-        }),
+        body: JSON.stringify({ text }),
       });
       if (!res.ok) throw new Error(`scan failed: ${res.status}`);
       const { food } = (await res.json()) as { food: ExtractedFood };
       setDraft({
         name: menuName.trim(),
-        restaurant: restoName.trim(),
+        restaurant: addMode === "resto" ? restoName.trim() : "",
         category: guessMealCategory(menuName.trim()),
         kcal: String(food.kcal),
         protein: String(food.protein_g),
@@ -140,7 +148,7 @@ export default function LibraryPage() {
     try {
       await addMeal({
         name: draft.name,
-        restaurant: draft.restaurant,
+        ...(draft.restaurant.trim() && { restaurant: draft.restaurant.trim() }),
         category: draft.category,
         kcal: Number(draft.kcal) || 0,
         protein_g: Number(draft.protein) || 0,
@@ -149,10 +157,13 @@ export default function LibraryPage() {
         portion: draft.portion,
         ...(draft.items && draft.items.length > 0 && { items: draft.items }),
       });
-      toast.success(`${draft.name} (${draft.restaurant}) masuk favorit! ⭐`);
+      toast.success(
+        draft.restaurant.trim() ? `${draft.name} (${draft.restaurant}) masuk favorit! ⭐` : `${draft.name} masuk favorit! ⭐`
+      );
       setDraft(null);
       setMenuName("");
       setRestoName("");
+      setIngredients("");
     } catch {
       toast.error("Gagal simpan ke favorit");
     } finally {
@@ -304,47 +315,93 @@ export default function LibraryPage() {
       <div className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-4">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 rounded-[11px] bg-accent text-primary flex items-center justify-center shrink-0">
-            <Store size={17} />
+            {addMode === "resto" ? <Store size={17} /> : <ChefHat size={17} />}
           </div>
           <div>
-            <p className="font-heading font-bold tracking-tight text-[15px]">Tambah menu resto</p>
+            <p className="font-heading font-bold tracking-tight text-[15px]">
+              {addMode === "resto" ? "Tambah menu resto" : "Tambah menu original"}
+            </p>
             <p className="text-[12px] text-muted-foreground">
-              Tinggal nama menu + restonya — AI yang cariin kalori & makronya.
+              {addMode === "resto"
+                ? "Tinggal nama menu + restonya — AI yang cariin kalori & makronya."
+                : "Masukin nama + bahan-bahannya — AI hitung nutrisi dari komposisi bahan."}
             </p>
           </div>
         </div>
 
-        <form onSubmit={handleSearch} className="grid sm:grid-cols-[1fr_1fr_auto] gap-2">
-          <input
-            value={menuName}
-            onChange={(e) => setMenuName(e.target.value)}
-            placeholder="Nama menu — mis. Big Mac"
-            className="rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
-          />
-          <input
-            value={restoName}
-            onChange={(e) => setRestoName(e.target.value)}
-            placeholder="Resto — mis. McDonald's"
-            list="resto-options"
-            className="rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
-          />
-          <datalist id="resto-options">
-            {restoOptions.map((r) => (
-              <option key={r} value={r} />
-            ))}
-          </datalist>
+        {/* Toggle mode */}
+        <div className="flex p-1 bg-muted rounded-[12px] w-full sm:w-fit">
+          {(
+            [
+              ["resto", "🏪 Menu resto"],
+              ["original", "🍳 Masakan sendiri"],
+            ] as ["resto" | "original", string][]
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setAddMode(m)}
+              className={cn(
+                "flex-1 sm:flex-none px-4 py-1.5 rounded-[9px] text-[13px] font-semibold transition-colors",
+                addMode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={handleSearch} className="space-y-2">
+          {addMode === "resto" ? (
+            <div className="grid sm:grid-cols-2 gap-2">
+              <input
+                value={menuName}
+                onChange={(e) => setMenuName(e.target.value)}
+                placeholder="Nama menu — mis. Big Mac"
+                className="rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+              <input
+                value={restoName}
+                onChange={(e) => setRestoName(e.target.value)}
+                placeholder="Resto — mis. McDonald's"
+                list="resto-options"
+                className="rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+              <datalist id="resto-options">
+                {restoOptions.map((r) => (
+                  <option key={r} value={r} />
+                ))}
+              </datalist>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <input
+                value={menuName}
+                onChange={(e) => setMenuName(e.target.value)}
+                placeholder="Nama masakan — mis. Nasi goreng spesial gua"
+                className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+              <textarea
+                value={ingredients}
+                onChange={(e) => setIngredients(e.target.value)}
+                rows={4}
+                placeholder={"Bahan-bahannya (1 per baris / dipisah koma), pakai takaran biar akurat:\nnasi 200 gr\ntelur 2 butir\nayam 100 gr\nminyak 1 sdm\nkecap 2 sdm"}
+                className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors resize-none"
+              />
+            </div>
+          )}
           <button
             type="submit"
             disabled={searching}
-            className="flex items-center justify-center gap-2 px-4 h-[42px] rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
+            className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 h-[42px] rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
           >
             {searching ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            {searching ? "Nyari..." : "Cari nutrisi"}
+            {searching ? "Nyari..." : addMode === "resto" ? "Cari nutrisi" : "Hitung dari bahan"}
           </button>
         </form>
 
-        {/* Quick-pick resto yang udah pernah dicatat */}
-        {restoOptions.length > 0 && (
+        {/* Quick-pick resto yang udah pernah dicatat (mode resto aja) */}
+        {addMode === "resto" && restoOptions.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[11px] font-medium text-muted-foreground">Resto kamu:</span>
             {restoOptions.slice(0, 6).map((r) => (
@@ -369,7 +426,10 @@ export default function LibraryPage() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <p className="text-sm font-bold">
-                  {draft.name} <span className="font-medium text-muted-foreground">· {draft.restaurant}</span>
+                  {draft.name}{" "}
+                  <span className="font-medium text-muted-foreground">
+                    · {draft.restaurant.trim() ? draft.restaurant : "Masakan sendiri 🍳"}
+                  </span>
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   ✨ Estimasi AI (yakin {Math.round(draft.confidence * 100)}%) · {draft.portion} — koreksi angkanya kalau perlu
