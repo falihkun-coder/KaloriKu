@@ -39,7 +39,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         <Sidebar />
 
         {/* Main Content Area */}
-        <div className="flex-1 w-full h-full overflow-y-auto relative pb-20 md:pb-6 px-4 md:px-10 pt-8 scrollbar-hide">
+        <div className="flex-1 w-full h-full overflow-y-auto relative pb-28 md:pb-6 px-4 md:px-10 pt-8 scrollbar-hide">
           <main className="min-h-full w-full max-w-[1400px] mx-auto">
             {isLoading ? (
               <div className="flex items-center justify-center min-h-[60vh]">

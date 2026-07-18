@@ -54,8 +54,8 @@ export function BottomNav() {
 
   return (
     <>
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border pb-safe">
-        <div className="flex justify-around items-center h-[66px] max-w-md mx-auto relative px-2">
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-50 px-4 pb-[calc(0.5rem+env(safe-area-inset-bottom))] pointer-events-none">
+        <div className="pointer-events-auto flex justify-around items-center h-[62px] max-w-md mx-auto relative px-2 rounded-[26px] border border-border bg-card/95 backdrop-blur-md shadow-[0_12px_34px_rgba(0,0,0,0.22)]">
           {barItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
