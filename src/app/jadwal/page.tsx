@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, Dumbbell, Target, Zap, TrendingUp, Repeat, Footprints, Check, Pencil, X } from "lucide-react";
+import { CalendarDays, Dumbbell, Target, Zap, TrendingUp, Repeat, Footprints, Check, Pencil, X, Sparkles, Loader2, Shuffle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { auth } from "@/lib/firebase";
+import type { WorkoutAlt } from "@/lib/workout-advisor";
 import { useStore } from "@/store/useStore";
 import {
   DayKey,
@@ -44,6 +46,17 @@ const OVERLOAD_CHAIN = [
   "Baru nambah beban (ransel)",
 ];
 
+// Gerakan yang bisa dicari alternatifnya (quick-pick)
+const ALT_TARGETS = [
+  "Pull-up",
+  "Push-up",
+  "Inverted row",
+  "Bulgarian split squat",
+  "Glute bridge",
+  "Hanging leg raise",
+  "Plank",
+];
+
 export default function JadwalPage() {
   const schedule = useStore((s) => s.schedule);
   const setScheduleDay = useStore((s) => s.setScheduleDay);
@@ -80,6 +93,38 @@ export default function JadwalPage() {
 
   const logDay = (d: ScheduleDay) => {
     openExerciseDialog({ type: WORKOUT_TO_EXERCISE[d.type], name: d.note?.trim() || WORKOUT_LABELS[d.type] });
+  };
+
+  // Cari alternatif latihan via AI — konteks/alasan wajib
+  const [altTarget, setAltTarget] = useState<string>(""); // "" = bebas
+  const [altReason, setAltReason] = useState("");
+  const [altLoading, setAltLoading] = useState(false);
+  const [alts, setAlts] = useState<WorkoutAlt[] | null>(null);
+
+  const findAlternatives = async () => {
+    if (!altReason.trim()) {
+      toast.error("Tulis dulu alasannya — mis. 'gak ada pull bar'");
+      return;
+    }
+    setAltLoading(true);
+    setAlts(null);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/workout-alt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ reason: altReason.trim(), target: altTarget || undefined }),
+      });
+      if (!res.ok) throw new Error(`workout-alt failed: ${res.status}`);
+      const { alternatives } = (await res.json()) as { alternatives: WorkoutAlt[] };
+      setAlts(alternatives);
+      if (alternatives.length === 0) toast.error("Gak nemu alternatif — coba jelasin lebih detail");
+    } catch (err) {
+      console.error(err);
+      toast.error("Gagal cari alternatif — coba lagi");
+    } finally {
+      setAltLoading(false);
+    }
   };
 
   return (
@@ -247,6 +292,127 @@ export default function JadwalPage() {
       <div className="flex items-center gap-2 pt-1 px-1">
         <Dumbbell size={16} className="text-primary" />
         <h2 className="font-heading font-bold tracking-tight text-[15px]">Panduan latihan</h2>
+      </div>
+
+      {/* Cari alternatif latihan via AI */}
+      <div className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-[11px] bg-accent text-primary flex items-center justify-center shrink-0">
+            <Shuffle size={17} />
+          </div>
+          <div>
+            <p className="font-heading font-bold tracking-tight text-[15px]">Cari alternatif latihan</p>
+            <p className="text-[12px] text-muted-foreground">
+              Gak ada alat, cedera, atau bosen? Kasih alasannya — AI cariin gerakan gantinya.
+            </p>
+          </div>
+        </div>
+
+        {/* Gerakan yang mau diganti (opsional) */}
+        <div>
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Gerakan yang diganti <span className="normal-case font-medium">(opsional)</span>
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setAltTarget("")}
+              className={cn(
+                "px-2.5 py-1.5 rounded-full text-[12px] font-semibold border transition-colors",
+                altTarget === ""
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card text-muted-foreground border-border hover:text-foreground"
+              )}
+            >
+              Bebas
+            </button>
+            {ALT_TARGETS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setAltTarget(altTarget === t ? "" : t)}
+                className={cn(
+                  "px-2.5 py-1.5 rounded-full text-[12px] font-semibold border transition-colors",
+                  altTarget === t
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card text-muted-foreground border-border hover:text-foreground"
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Alasan / konteks (wajib) */}
+        <div>
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+            Alasan / konteks
+          </p>
+          <textarea
+            value={altReason}
+            onChange={(e) => setAltReason(e.target.value)}
+            rows={2}
+            placeholder="mis. lagi di hotel gak ada pull bar · bahu kanan lagi sakit · bosen mau variasi baru"
+            className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors resize-none"
+          />
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {["Gak ada alat", "Cedera / sakit", "Di rumah aja", "Bosen, mau variasi"].map((q) => (
+              <button
+                key={q}
+                onClick={() => setAltReason(q)}
+                className="px-2.5 py-1 rounded-full text-[11px] font-medium border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          onClick={findAlternatives}
+          disabled={altLoading}
+          className="flex items-center justify-center gap-2 w-full h-10 rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
+        >
+          {altLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+          {altLoading ? "Nyariin..." : "Cari alternatif"}
+        </button>
+
+        {/* Hasil */}
+        {alts && alts.length > 0 && (
+          <div className="space-y-2.5 pt-1">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+              {altTarget ? `Alternatif ${altTarget}` : "Alternatif latihan"}
+            </p>
+            {alts.map((a, i) => (
+              <div key={i} className="rounded-[14px] border border-border bg-background p-3.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold">{a.name}</p>
+                    {a.targets && <p className="text-[11px] font-medium text-primary mt-0.5">🎯 {a.targets}</p>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {a.setsReps && (
+                      <span className="text-[12px] font-bold tabular-nums text-muted-foreground">{a.setsReps}</span>
+                    )}
+                    <button
+                      onClick={() => openExerciseDialog({ type: "beban", name: a.name })}
+                      aria-label={`Catat ${a.name}`}
+                      title="Catat sebagai olahraga"
+                      className="h-7 w-7 rounded-[8px] border border-border flex items-center justify-center text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                    >
+                      <Dumbbell size={13} />
+                    </button>
+                  </div>
+                </div>
+                {a.howto && <p className="text-[12px] text-muted-foreground mt-1.5">{a.howto}</p>}
+                {a.reason && (
+                  <p className="text-[12px] text-foreground mt-1.5 rounded-[9px] bg-accent/40 px-2.5 py-1.5">
+                    💡 {a.reason}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Full Body routine */}
