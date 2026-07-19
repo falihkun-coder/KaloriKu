@@ -193,6 +193,18 @@ export const MEAL_LABELS: Record<MealType, string> = {
 
 export const MEAL_ORDER: MealType[] = ["sarapan", "siang", "malam", "snack"];
 
+/** Tebak waktu makan dari jam sekarang (WIB) — buat default entri baru. */
+export function currentMealWIB(now: Date = new Date()): MealType {
+  const hour = Number(
+    new Intl.DateTimeFormat("id-ID", { hour: "numeric", hour12: false, timeZone: "Asia/Jakarta" }).format(now)
+  );
+  if (hour < 11) return "sarapan";
+  if (hour < 15) return "siang";
+  if (hour < 18) return "snack";
+  if (hour < 22) return "malam";
+  return "snack";
+}
+
 const WIB_OFFSET_MS = 7 * 60 * 60 * 1000; // Asia/Jakarta, tanpa DST
 
 /** Kunci hari 'YYYY-MM-DD' dalam WIB — daily reset 00.00 WIB (brief §06). */

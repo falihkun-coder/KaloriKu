@@ -3,13 +3,16 @@
 import { useRef, useState } from "react";
 import { ScanLine, ImagePlus, Loader2, Sparkles, PenLine } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { BarcodeScanner } from "@/components/scan/barcode-scanner";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
 import { ExtractedFood } from "@/lib/ai-extract";
+import { lookupBarcode } from "@/lib/openfoodfacts";
+import { currentMealWIB } from "@/lib/calculations";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-type Mode = "foto" | "teks";
+type Mode = "foto" | "teks" | "barcode";
 
 export default function ScanPage() {
   const openFoodDialog = useStore((state) => state.openFoodDialog);
@@ -36,6 +39,39 @@ export default function ScanPage() {
       setImageBase64(dataUrl.split(",")[1]);
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleBarcode = async (code: string) => {
+    setLoading(true);
+    try {
+      const p = await lookupBarcode(code);
+      if (!p) {
+        toast.error(`Barcode ${code} gak ketemu di database — isi manual aja ya`);
+        openFoodDialog();
+        return;
+      }
+      const name = p.brand && !p.name.toLowerCase().includes(p.brand.toLowerCase()) ? `${p.name} (${p.brand})` : p.name;
+      openFoodDialog({
+        name,
+        kcal: p.kcal,
+        protein_g: p.protein_g,
+        carbs_g: p.carbs_g,
+        fat_g: p.fat_g,
+        portion: p.portion,
+        meal: currentMealWIB(),
+        source: "scan",
+      });
+      toast.success(
+        p.perServing
+          ? `${p.name} ketemu! Cek & simpan ya 🏷️`
+          : `${p.name} ketemu — angka per 100 g, sesuaikan porsimu ya 🏷️`
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error("Gagal ambil data barcode — coba lagi atau isi manual");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleExtract = async () => {
@@ -77,7 +113,7 @@ export default function ScanPage() {
     <div className="space-y-5 pb-6 max-w-2xl">
       <PageHeader
         title="Scan AI"
-        description="Foto makanan, label nutrisi, atau ketik bebas — AI yang ngitung."
+        description="Foto, teks, atau barcode kemasan — biar keitung otomatis."
         icon={ScanLine}
       />
 
@@ -87,13 +123,14 @@ export default function ScanPage() {
           [
             ["foto", "📷 Foto"],
             ["teks", "✍️ Teks"],
+            ["barcode", "🏷️ Barcode"],
           ] as [Mode, string][]
         ).map(([m, label]) => (
           <button
             key={m}
             onClick={() => setMode(m)}
             className={cn(
-              "px-4 py-1.5 rounded-[9px] text-[13px] font-semibold transition-colors",
+              "px-3.5 py-1.5 rounded-[9px] text-[13px] font-semibold transition-colors",
               mode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
             )}
           >
@@ -103,7 +140,29 @@ export default function ScanPage() {
       </div>
 
       <div className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-4">
-        {mode === "foto" ? (
+        {mode === "barcode" ? (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-[11px] bg-accent text-primary flex items-center justify-center shrink-0">
+                <ScanLine size={17} />
+              </div>
+              <div>
+                <p className="font-heading font-bold tracking-tight text-[15px]">Scan barcode kemasan</p>
+                <p className="text-[12px] text-muted-foreground">
+                  Nutrisi dari database Open Food Facts — gratis, tanpa AI.
+                </p>
+              </div>
+            </div>
+            <BarcodeScanner onDetected={handleBarcode} busy={loading} />
+            <button
+              onClick={() => openFoodDialog()}
+              className="flex items-center justify-center gap-1.5 w-full text-[13px] font-semibold text-muted-foreground hover:text-foreground transition-colors py-1"
+            >
+              <PenLine size={14} />
+              Atau isi manual aja
+            </button>
+          </>
+        ) : mode === "foto" ? (
           <>
             <input
               ref={fileRef}
@@ -166,26 +225,32 @@ export default function ScanPage() {
           />
         )}
 
-        <button
-          onClick={handleExtract}
-          disabled={loading}
-          className="flex items-center justify-center gap-2 w-full h-12 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
-        >
-          {loading ? <Loader2 size={17} className="animate-spin" /> : <Sparkles size={17} />}
-          {loading ? "AI lagi ngitung..." : "Hitung nutrisi"}
-        </button>
+        {mode !== "barcode" && (
+          <>
+            <button
+              onClick={handleExtract}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 w-full h-12 rounded-[12px] bg-primary text-primary-foreground text-sm font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
+            >
+              {loading ? <Loader2 size={17} className="animate-spin" /> : <Sparkles size={17} />}
+              {loading ? "AI lagi ngitung..." : "Hitung nutrisi"}
+            </button>
 
-        <button
-          onClick={() => openFoodDialog()}
-          className="flex items-center justify-center gap-1.5 w-full text-[13px] font-semibold text-muted-foreground hover:text-foreground transition-colors py-1"
-        >
-          <PenLine size={14} />
-          Atau isi manual aja
-        </button>
+            <button
+              onClick={() => openFoodDialog()}
+              className="flex items-center justify-center gap-1.5 w-full text-[13px] font-semibold text-muted-foreground hover:text-foreground transition-colors py-1"
+            >
+              <PenLine size={14} />
+              Atau isi manual aja
+            </button>
+          </>
+        )}
       </div>
 
       <p className="text-[12px] text-muted-foreground px-1">
-        Hasil AI itu estimasi — sebelum kesimpan kamu selalu bisa koreksi angkanya dulu.
+        {mode === "barcode"
+          ? "Data dari Open Food Facts — sebelum kesimpan kamu selalu bisa koreksi angka & porsinya dulu."
+          : "Hasil AI itu estimasi — sebelum kesimpan kamu selalu bisa koreksi angkanya dulu."}
       </p>
     </div>
   );
