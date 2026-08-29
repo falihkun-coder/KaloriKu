@@ -399,6 +399,19 @@ export function todayDayKey(input: Date = new Date()): DayKey {
 
 // ===== Rencana makan mingguan =====
 
+/**
+ * Komponen penyusun satu menu — mis. "Sop ikan kakap", "Dada ayam panggang",
+ * "Nasi putih 150g". Bawa makro sendiri biar bisa diganti satuan tanpa
+ * ngitung ulang seluruh menu.
+ */
+export type PlannedItem = {
+  name: string;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+};
+
 /** Satu slot makan yang udah direncanain (dari library atau hasil AI). */
 export type PlannedMeal = {
   name: string;
@@ -407,11 +420,49 @@ export type PlannedMeal = {
   carbs_g: number;
   fat_g: number;
   portion: string;
+  /** Komponen penyusun — kalau ada, total = jumlah komponen */
+  items?: PlannedItem[];
   /** Kalau berasal dari meal library — biar bisa 1-tap log persis */
   mealId?: string;
   /** Kenapa menu ini dipilih (1 kalimat dari AI) */
   reason?: string;
 };
+
+/** Jumlahin makro semua komponen. */
+export function sumPlannedItems(items: PlannedItem[]): MacroTotals {
+  return items.reduce(
+    (acc, it) => ({
+      kcal: acc.kcal + (it.kcal || 0),
+      protein_g: Math.round((acc.protein_g + (it.protein_g || 0)) * 10) / 10,
+      carbs_g: Math.round((acc.carbs_g + (it.carbs_g || 0)) * 10) / 10,
+      fat_g: Math.round((acc.fat_g + (it.fat_g || 0)) * 10) / 10,
+    }),
+    { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
+  );
+}
+
+/**
+ * Sinkronin total menu sama komponennya (dipanggil tiap komponen berubah),
+ * plus nama menu digabung ulang dari nama komponen.
+ */
+export function syncPlannedFromItems(meal: PlannedMeal, items: PlannedItem[]): PlannedMeal {
+  const t = sumPlannedItems(items);
+  const name = items.map((i) => i.name).join(" & ") || meal.name;
+  const next: PlannedMeal = {
+    ...meal,
+    items,
+    name,
+    kcal: t.kcal,
+    protein_g: t.protein_g,
+    carbs_g: t.carbs_g,
+    fat_g: t.fat_g,
+  };
+  // mealId cuma valid kalau menunya utuh dari library
+  delete next.mealId;
+  // alasan AI basi kalau komposisinya berubah
+  if (name !== meal.name) delete next.reason;
+  return next;
+}
 
 export type DayPlan = Partial<Record<MealType, PlannedMeal>>;
 export type MealPlan = {

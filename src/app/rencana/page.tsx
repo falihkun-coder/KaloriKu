@@ -14,6 +14,7 @@ import {
   ThumbsDown,
   X,
   Ban,
+  Scissors,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
@@ -22,7 +23,9 @@ import {
   DayKey,
   MealType,
   PlannedMeal,
+  PlannedItem,
   MealPlan,
+  syncPlannedFromItems,
   WEEKDAY_ORDER,
   WEEKDAY_LABELS,
   MEAL_ORDER,
@@ -78,10 +81,31 @@ export default function RencanaPage() {
   const [edit, setEdit] = useState<SlotEdit | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Modal "gak suka" — user boleh persingkat jadi kata kunci (mis. "jengkol")
-  const [dislikeDraft, setDislikeDraft] = useState<{ day: DayKey; meal: MealType; text: string } | null>(null);
+  // Modal "gak suka" — user boleh persingkat jadi kata kunci (mis. "jengkol").
+  // index = komponen ke-berapa yang diblokir (undefined = seluruh menu)
+  const [dislikeDraft, setDislikeDraft] = useState<{
+    day: DayKey;
+    meal: MealType;
+    text: string;
+    index?: number;
+  } | null>(null);
   const [savingDislike, setSavingDislike] = useState(false);
   const [newDislike, setNewDislike] = useState("");
+
+  // Edit/ganti komponen di dalam menu
+  const [busyComp, setBusyComp] = useState<string | null>(null);
+  const [compEdit, setCompEdit] = useState<{
+    day: DayKey;
+    meal: MealType;
+    /** -1 = tambah komponen baru */
+    index: number;
+    name: string;
+    kcal: string;
+    protein: string;
+    carbs: string;
+    fat: string;
+  } | null>(null);
+  const [savingComp, setSavingComp] = useState(false);
 
   const generateWeek = async () => {
     if (hasPlan && !window.confirm("Ganti seluruh rencana minggu ini dengan yang baru?")) return;
@@ -195,6 +219,132 @@ export default function RencanaPage() {
     }
   };
 
+  // ===== Komponen di dalam menu (mis. ganti sop ikannya doang) =====
+
+  // Simpan ulang menu dari daftar komponen — total & nama ikut nyesuaiin
+  const applyItems = async (day: DayKey, meal: MealType, items: PlannedItem[]) => {
+    const cur = mealPlan.days[day]?.[meal];
+    if (!cur) return;
+    if (items.length === 0) {
+      await setPlanSlot(day, meal, null);
+      return;
+    }
+    await setPlanSlot(day, meal, syncPlannedFromItems(cur, items));
+  };
+
+  // Pecah menu lama (belum punya komponen) jadi komponen-komponen
+  const splitMeal = async (day: DayKey, meal: MealType) => {
+    const cur = mealPlan.days[day]?.[meal];
+    if (!cur) return;
+    const key = `split-${day}-${meal}`;
+    setBusyComp(key);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/meal-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({ mode: "split", meal: cur }),
+      });
+      if (!res.ok) throw new Error(`split failed: ${res.status}`);
+      const { items } = (await res.json()) as { items: PlannedItem[] | null };
+      if (!items || items.length === 0) throw new Error("empty split");
+      // nama menu asli dipertahanin — cuma komponennya yang ditambahin
+      await setPlanSlot(day, meal, { ...cur, items });
+      toast.success("Menu dipecah jadi komponen ✂️");
+    } catch (e) {
+      console.error(e);
+      toast.error("Gagal pecah menu — coba lagi");
+    } finally {
+      setBusyComp(null);
+    }
+  };
+
+  // Ganti 1 komponen pakai AI (komponen lain tetap)
+  const swapComponent = async (day: DayKey, meal: MealType, index: number) => {
+    const cur = mealPlan.days[day]?.[meal];
+    const items = cur?.items;
+    if (!cur || !items?.[index]) return;
+    const key = `${day}-${meal}-${index}`;
+    setBusyComp(key);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      const res = await fetch("/api/meal-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          mode: "component",
+          mealName: cur.name,
+          meal,
+          components: items,
+          targetIndex: index,
+          preferences: prefs.trim() || undefined,
+        }),
+      });
+      if (!res.ok) throw new Error(`component failed: ${res.status}`);
+      const { item } = (await res.json()) as { item: PlannedItem | null };
+      if (!item) throw new Error("empty component");
+      await applyItems(day, meal, items.map((it, i) => (i === index ? item : it)));
+      toast.success(`Diganti: ${item.name}`);
+    } catch (e) {
+      console.error(e);
+      toast.error("Gagal ganti komponen");
+    } finally {
+      setBusyComp(null);
+    }
+  };
+
+  const removeComponent = async (day: DayKey, meal: MealType, index: number) => {
+    const items = mealPlan.days[day]?.[meal]?.items;
+    if (!items) return;
+    try {
+      await applyItems(day, meal, items.filter((_, i) => i !== index));
+    } catch {
+      toast.error("Gagal hapus komponen");
+    }
+  };
+
+  const openCompEdit = (day: DayKey, meal: MealType, index: number, it?: PlannedItem) => {
+    setCompEdit({
+      day,
+      meal,
+      index,
+      name: it?.name || "",
+      kcal: it ? String(it.kcal) : "",
+      protein: it ? String(it.protein_g) : "",
+      carbs: it ? String(it.carbs_g) : "",
+      fat: it ? String(it.fat_g) : "",
+    });
+  };
+
+  const saveCompEdit = async () => {
+    if (!compEdit) return;
+    if (!compEdit.name.trim()) {
+      toast.error("Nama komponennya diisi dulu ya");
+      return;
+    }
+    setSavingComp(true);
+    try {
+      const cur = mealPlan.days[compEdit.day]?.[compEdit.meal];
+      const items = cur?.items || [];
+      const next: PlannedItem = {
+        name: compEdit.name.trim(),
+        kcal: Number(compEdit.kcal) || 0,
+        protein_g: Number(compEdit.protein) || 0,
+        carbs_g: Number(compEdit.carbs) || 0,
+        fat_g: Number(compEdit.fat) || 0,
+      };
+      const updated =
+        compEdit.index < 0 ? [...items, next] : items.map((it, i) => (i === compEdit.index ? next : it));
+      await applyItems(compEdit.day, compEdit.meal, updated);
+      toast.success(compEdit.index < 0 ? "Komponen ditambah" : "Komponen diperbarui");
+      setCompEdit(null);
+    } catch {
+      toast.error("Gagal simpan komponen");
+    } finally {
+      setSavingComp(false);
+    }
+  };
+
   // ===== Edit slot manual =====
   const openSlotEdit = (day: DayKey, meal: MealType, p?: PlannedMeal) => {
     setEdit({
@@ -248,10 +398,12 @@ export default function RencanaPage() {
     setSavingDislike(true);
     try {
       await setDislikes([...dislikes, text]);
-      const { day, meal } = dislikeDraft;
+      const { day, meal, index } = dislikeDraft;
       setDislikeDraft(null);
       toast.success(`"${text}" gak bakal muncul lagi 🚫`);
-      await rerollSlot(day, meal); // langsung cariin gantinya
+      // komponen → ganti komponennya doang; menu utuh → reroll seluruh slot
+      if (typeof index === "number") await swapComponent(day, meal, index);
+      else await rerollSlot(day, meal);
     } catch {
       toast.error("Gagal simpan");
     } finally {
@@ -524,6 +676,87 @@ export default function RencanaPage() {
                             </div>
                           </div>
 
+                          {/* Komponen menu — bisa diganti/edit satuan */}
+                          {p && p.items && p.items.length > 0 && (
+                            <div className="mt-2.5 rounded-[10px] border border-border bg-card/60 divide-y divide-line-soft">
+                              {p.items.map((it, idx) => {
+                                const ck = `${day}-${meal}-${idx}`;
+                                return (
+                                  <div key={idx} className="flex items-center gap-2 px-2.5 py-2">
+                                    <div className="min-w-0 flex-1">
+                                      <p className="text-[12px] font-semibold truncate">{it.name}</p>
+                                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                                        {fmtNum(it.kcal)} kkal · P {fmtNum(it.protein_g)} · K {fmtNum(it.carbs_g)} · L{" "}
+                                        {fmtNum(it.fat_g)}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-0.5 shrink-0">
+                                      <button
+                                        onClick={() => swapComponent(day, meal, idx)}
+                                        disabled={busyComp === ck}
+                                        title={`Ganti ${it.name}`}
+                                        aria-label={`Ganti ${it.name}`}
+                                        className="h-7 w-7 rounded-[7px] flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-accent transition-colors disabled:opacity-50"
+                                      >
+                                        {busyComp === ck ? (
+                                          <Loader2 size={12} className="animate-spin" />
+                                        ) : (
+                                          <RefreshCw size={12} />
+                                        )}
+                                      </button>
+                                      <button
+                                        onClick={() => openCompEdit(day, meal, idx, it)}
+                                        title={`Edit ${it.name}`}
+                                        aria-label={`Edit ${it.name}`}
+                                        className="h-7 w-7 rounded-[7px] flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-accent transition-colors"
+                                      >
+                                        <Pencil size={11} />
+                                      </button>
+                                      <button
+                                        onClick={() => setDislikeDraft({ day, meal, text: it.name, index: idx })}
+                                        title={`Gak suka ${it.name}`}
+                                        aria-label={`Gak suka ${it.name}`}
+                                        className="h-7 w-7 rounded-[7px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                      >
+                                        <ThumbsDown size={11} />
+                                      </button>
+                                      <button
+                                        onClick={() => removeComponent(day, meal, idx)}
+                                        title={`Hapus ${it.name}`}
+                                        aria-label={`Hapus ${it.name}`}
+                                        className="h-7 w-7 rounded-[7px] flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                      >
+                                        <X size={12} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              <button
+                                onClick={() => openCompEdit(day, meal, -1)}
+                                className="flex items-center gap-1.5 w-full px-2.5 py-2 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-colors"
+                              >
+                                <Plus size={12} /> Tambah komponen
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Menu lama belum kepecah → tawarin pecah */}
+                          {p && (!p.items || p.items.length === 0) && (
+                            <button
+                              onClick={() => splitMeal(day, meal)}
+                              disabled={busyComp === `split-${day}-${meal}`}
+                              className="flex items-center gap-1.5 mt-2.5 px-3 h-8 rounded-[9px] border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-60"
+                            >
+                              {busyComp === `split-${day}-${meal}` ? (
+                                <Loader2 size={12} className="animate-spin" />
+                              ) : (
+                                <Scissors size={12} />
+                              )}
+                              Pecah jadi komponen
+                            </button>
+                          )}
+
                           <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
                             {p && isToday && (
                               <button
@@ -751,6 +984,97 @@ export default function RencanaPage() {
         </div>
       )}
 
+      {/* Modal edit komponen */}
+      {compEdit && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+          onClick={() => !savingComp && setCompEdit(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-md bg-card border border-border rounded-t-[24px] sm:rounded-[22px] p-5 md:p-6 space-y-4"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-[11px] bg-accent text-primary flex items-center justify-center shrink-0">
+                  <Pencil size={16} />
+                </div>
+                <div>
+                  <p className="font-heading font-bold tracking-tight text-[15px]">
+                    {compEdit.index < 0 ? "Tambah komponen" : "Edit komponen"}
+                  </p>
+                  <p className="text-[12px] text-muted-foreground">
+                    {WEEKDAY_LABELS[compEdit.day]} · {MEAL_LABELS[compEdit.meal]}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setCompEdit(null)}
+                aria-label="Tutup"
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <label className="space-y-1 block">
+              <span className="text-[11px] font-semibold text-muted-foreground">Nama komponen</span>
+              <input
+                value={compEdit.name}
+                onChange={(e) => setCompEdit({ ...compEdit, name: e.target.value })}
+                placeholder="mis. Nasi putih 150g"
+                className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+            </label>
+
+            <div className="grid grid-cols-4 gap-2">
+              {(
+                [
+                  ["kcal", "kkal"],
+                  ["protein", "P (g)"],
+                  ["carbs", "K (g)"],
+                  ["fat", "L (g)"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="rounded-[12px] bg-background border border-border px-3 py-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={compEdit[key]}
+                    onChange={(e) => setCompEdit({ ...compEdit, [key]: e.target.value })}
+                    className="w-full bg-transparent outline-none font-heading font-bold tabular-nums text-[15px]"
+                  />
+                </div>
+              ))}
+            </div>
+
+            <p className="text-[11px] text-muted-foreground">
+              Total menu otomatis dijumlah ulang dari semua komponennya.
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setCompEdit(null)}
+                disabled={savingComp}
+                className="flex-1 h-10 rounded-[12px] border border-border text-[13px] font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={saveCompEdit}
+                disabled={savingComp}
+                className="flex-[2] flex items-center justify-center gap-2 h-10 rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold transition-transform active:scale-[0.98] disabled:opacity-50"
+              >
+                {savingComp ? <Loader2 size={15} className="animate-spin" /> : <Pencil size={15} />}
+                {savingComp ? "Menyimpan..." : "Simpan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal "gak suka" */}
       {dislikeDraft && (
         <div
@@ -767,7 +1091,11 @@ export default function RencanaPage() {
               </div>
               <div>
                 <p className="font-heading font-bold tracking-tight text-[15px]">Gak suka apa nih?</p>
-                <p className="text-[12px] text-muted-foreground">Ini gak bakal muncul lagi di rencana berikutnya.</p>
+                <p className="text-[12px] text-muted-foreground">
+                  {typeof dislikeDraft.index === "number"
+                    ? "Komponen ini bakal diganti, dan gak muncul lagi ke depannya."
+                    : "Ini gak bakal muncul lagi di rencana berikutnya."}
+                </p>
               </div>
             </div>
 

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { generateWeeklyPlan, generateSingleSlot } from "@/lib/meal-planner";
+import { generateWeeklyPlan, generateSingleSlot, generateComponentSwap, splitIntoComponents } from "@/lib/meal-planner";
 import { recordAiUsage } from "@/lib/ai-usage";
-import { SavedMeal, Goals, DayKey, MealType, DEFAULT_GOALS } from "@/lib/calculations";
+import { SavedMeal, Goals, DayKey, MealType, PlannedItem, PlannedMeal, DEFAULT_GOALS } from "@/lib/calculations";
 
 // Generate rencana makan mingguan (atau ganti 1 slot) dari target + meal library. Wajib login.
 export async function POST(request: Request) {
@@ -31,6 +31,34 @@ export async function POST(request: Request) {
     // Blacklist dibaca dari server biar selalu terbaru (client bisa stale)
     const saved = planDoc.exists ? (planDoc.data() as { dislikes?: unknown }) : null;
     const dislikes = Array.isArray(saved?.dislikes) ? (saved.dislikes as string[]).slice(0, 40) : [];
+
+    // Mode "component": ganti 1 komponen di dalam menu (mis. sop ikannya doang)
+    if (body?.mode === "component") {
+      const components = Array.isArray(body.components) ? (body.components as PlannedItem[]).slice(0, 8) : [];
+      const targetIndex = Number(body.targetIndex);
+      if (components.length === 0 || !Number.isInteger(targetIndex) || !components[targetIndex]) {
+        return NextResponse.json({ error: "components & targetIndex wajib valid" }, { status: 400 });
+      }
+      const { item, usage } = await generateComponentSwap({
+        goals,
+        mealName: String(body.mealName || "").slice(0, 160),
+        meal: String(body.meal || "siang") as MealType,
+        components,
+        targetIndex,
+        dislikes,
+        preferences,
+      });
+      await recordAiUsage(uid, usage);
+      return NextResponse.json({ item });
+    }
+
+    // Mode "split": pecah menu lama jadi komponen-komponen
+    if (body?.mode === "split") {
+      if (!body?.meal?.name) return NextResponse.json({ error: "meal wajib" }, { status: 400 });
+      const { items, usage } = await splitIntoComponents({ meal: body.meal as PlannedMeal });
+      await recordAiUsage(uid, usage);
+      return NextResponse.json({ items });
+    }
 
     // Mode "slot": ganti satu menu doang
     if (body?.mode === "slot") {

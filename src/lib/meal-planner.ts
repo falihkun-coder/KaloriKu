@@ -1,36 +1,79 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { Goals, SavedMeal, MealType, DayKey, MealPlan, PlannedMeal, MEAL_ORDER, WEEKDAY_ORDER, WEEKDAY_LABELS, mealLabel } from "@/lib/calculations";
+import {
+  Goals,
+  SavedMeal,
+  MealType,
+  DayKey,
+  MealPlan,
+  PlannedMeal,
+  PlannedItem,
+  MEAL_ORDER,
+  WEEKDAY_ORDER,
+  WEEKDAY_LABELS,
+  mealLabel,
+  sumPlannedItems,
+} from "@/lib/calculations";
 import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
 import { readUsage } from "@/lib/ai-extract";
 
 const VALID_MEALS = new Set<string>(MEAL_ORDER);
 const VALID_DAYS = new Set<string>(WEEKDAY_ORDER);
 
-function cleanPlanned(raw: unknown, library: SavedMeal[]): PlannedMeal | null {
+const num = (v: unknown, dec = 0) => {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return dec ? Math.round(n * 10) / 10 : Math.round(n);
+};
+
+/** Bersihin 1 komponen menu (nama + makro sendiri). */
+export function cleanItem(raw: unknown): PlannedItem | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  const name = String(r.name || "").trim().slice(0, 80);
+  const name = String(r.name || "").trim().slice(0, 60);
   if (!name) return null;
-  const num = (v: unknown, dec = 0) => {
-    const n = Number(v);
-    if (!Number.isFinite(n) || n < 0) return 0;
-    return dec ? Math.round(n * 10) / 10 : Math.round(n);
-  };
-  // Kalau namanya persis favorit di library, tempel mealId biar 1-tap log akurat
-  const match = library.find(
-    (m) => mealLabel(m).toLowerCase() === name.toLowerCase() || m.name.toLowerCase() === name.toLowerCase()
-  );
   return {
     name,
     kcal: num(r.kcal),
     protein_g: num(r.protein_g, 1),
     carbs_g: num(r.carbs_g, 1),
     fat_g: num(r.fat_g, 1),
+  };
+}
+
+function cleanItems(raw: unknown): PlannedItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items = raw.map(cleanItem).filter((x): x is PlannedItem => !!x).slice(0, 8);
+  // 1 komponen doang = sama aja kayak menu tunggal, gak usah dipecah
+  return items.length >= 2 ? items : undefined;
+}
+
+function cleanPlanned(raw: unknown, library: SavedMeal[]): PlannedMeal | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const name = String(r.name || "").trim().slice(0, 120);
+  if (!name) return null;
+  // Kalau namanya persis favorit di library, tempel mealId biar 1-tap log akurat
+  const match = library.find(
+    (m) => mealLabel(m).toLowerCase() === name.toLowerCase() || m.name.toLowerCase() === name.toLowerCase()
+  );
+  const items = cleanItems(r.items);
+  // Total selalu ngikut komponen kalau ada — biar konsisten pas komponen diganti
+  const totals = items ? sumPlannedItems(items) : null;
+  return {
+    name,
+    kcal: totals ? totals.kcal : num(r.kcal),
+    protein_g: totals ? totals.protein_g : num(r.protein_g, 1),
+    carbs_g: totals ? totals.carbs_g : num(r.carbs_g, 1),
+    fat_g: totals ? totals.fat_g : num(r.fat_g, 1),
     portion: String(r.portion || "1 porsi").trim().slice(0, 40) || "1 porsi",
-    ...(match ? { mealId: match.id } : {}),
+    ...(items ? { items } : {}),
+    ...(match && !items ? { mealId: match.id } : {}),
     ...(r.reason ? { reason: String(r.reason).slice(0, 160) } : {}),
   };
 }
+
+// Format komponen yang dipakai di beberapa prompt.
+const ITEM_SHAPE = `{ "name": string (komponen tunggal, sertakan takaran mis. "Nasi putih 150g"), "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number }`;
 
 function libraryBlock(library: SavedMeal[]): string {
   if (library.length === 0) return "(kosong — pakai makanan Indonesia umum yang gampang didapat)";
@@ -91,16 +134,20 @@ export async function generateWeeklyPlan(input: {
     - Kalau pakai item dari favorit user, tulis "name" PERSIS seperti di daftar favorit (termasuk nama restonya kalau ada), dan pakai angka gizi yang sama.
     - Untuk menu di luar favorit, estimasi realistis untuk porsi yang disebut.
     - reason: 1 kalimat pendek bahasa Indonesia santai, kenapa menu itu dipilih hari itu.
+    - items: WAJIB pecah tiap menu jadi komponen terpisah (lauk, karbo, sayur, minuman) — user mau bisa
+      ganti komponennya satuan. Contoh "Sop ikan kakap & Dada ayam panggang & Nasi putih 150g" jadi 3 item.
+      Makro tiap item HARUS dijumlah = makro total menu. Menu yang emang tunggal (mis. "Apel 1 buah")
+      boleh cuma 1 item. Tulis takaran di nama item biar jelas.
 
     Balas HANYA JSON valid (tanpa markdown/backtick) dengan bentuk:
     {
       "sen": {
-        "sarapan": { "name": string, "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number, "portion": string, "reason": string },
+        "sarapan": { "name": string, "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number, "portion": string, "reason": string, "items": [${ITEM_SHAPE}] },
         "siang": { ... }, "malam": { ... }, "snack": { ... }
       },
       "sel": { ... }, "rab": { ... }, "kam": { ... }, "jum": { ... }, "sab": { ... }, "min": { ... }
     }
-    Kunci hari HARUS: sen, sel, rab, kam, jum, sab, min.
+    Kunci hari HARUS: sen, sel, rab, kam, jum, sab, min. Ringkas — jangan tambah field lain.
   `;
 
   const result = await model.generateContent(prompt);
@@ -155,8 +202,10 @@ export async function generateSingleSlot(input: {
     FAVORIT USER (prioritaskan, tulis nama PERSIS):
     ${libraryBlock(input.library)}
 
+    Pecah menu jadi komponen terpisah di "items" (lauk, karbo, sayur, minuman) — makro item dijumlah = total.
+
     Balas HANYA JSON valid (tanpa markdown/backtick):
-    { "name": string, "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number, "portion": string, "reason": string }
+    { "name": string, "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number, "portion": string, "reason": string, "items": [${ITEM_SHAPE}] }
   `;
 
   const result = await model.generateContent(prompt);
@@ -165,4 +214,93 @@ export async function generateSingleSlot(input: {
   const planned = cleanPlanned(JSON.parse(cleanJson), input.library);
 
   return { planned, usage: readUsage(result.response) };
+}
+
+/**
+ * Ganti SATU komponen di dalam menu (mis. tuker "Sop ikan kakap" doang,
+ * dada ayam & nasinya tetap). Balikin komponen pengganti lengkap sama makronya.
+ */
+export async function generateComponentSwap(input: {
+  goals: Goals;
+  mealName: string;
+  meal: MealType;
+  components: PlannedItem[];
+  targetIndex: number;
+  dislikes?: string[];
+  preferences?: string;
+}): Promise<{ item: PlannedItem | null; usage?: AiUsage }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+
+  const target = input.components[input.targetIndex];
+  if (!target) return { item: null };
+  const keep = input.components
+    .filter((_, i) => i !== input.targetIndex)
+    .map((c) => `- ${c.name} (${c.kcal} kkal, P${c.protein_g})`)
+    .join("\n    ");
+
+  const prompt = `
+    Kamu ahli gizi Indonesia. User punya menu "${input.mealName}" (${input.meal}) dan mau GANTI SATU KOMPONEN aja.
+
+    KOMPONEN YANG DIGANTI: "${target.name}" (${target.kcal} kkal, P${target.protein_g} K${target.carbs_g} L${target.fat_g})
+    Komponen lain TETAP (jangan diubah, jangan diduplikat):
+    ${keep || "(gak ada — ini satu-satunya komponen)"}
+
+    Target harian user: ${targetsBlock(input.goals)}
+    ${input.preferences?.trim() ? `PREFERENSI USER: "${input.preferences.trim()}"` : ""}
+    ${dislikesBlock(input.dislikes)}
+
+    Aturan:
+    - Kasih SATU komponen pengganti yang PERANNYA SAMA (lauk diganti lauk, karbo diganti karbo, sayur diganti sayur, minuman diganti minuman).
+    - Kalorinya mirip komponen lama (selisih maks ~25%), biar total menu gak jauh meleset.
+    - JANGAN kasih yang sama/mirip dengan "${target.name}" — user minta ganti.
+    - JANGAN duplikat komponen yang sudah ada di daftar "tetap" di atas.
+    - Makanan Indonesia yang gampang didapat/dibuat. Sertakan takaran di nama (mis. "Tempe orek 100g").
+
+    Balas HANYA JSON valid (tanpa markdown/backtick):
+    ${ITEM_SHAPE}
+  `;
+
+  const result = await model.generateContent(prompt);
+  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+  return { item: cleanItem(JSON.parse(cleanJson)), usage: readUsage(result.response) };
+}
+
+/** Pecah menu lama (yang belum punya komponen) jadi komponen-komponen. */
+export async function splitIntoComponents(input: {
+  meal: PlannedMeal;
+}): Promise<{ items: PlannedItem[] | null; usage?: AiUsage }> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+  const m = input.meal;
+
+  const prompt = `
+    Pecah menu Indonesia ini jadi komponen-komponen penyusunnya (lauk, karbo, sayur, minuman).
+
+    Menu: "${m.name}" — ${m.portion}
+    Total gizi: ${m.kcal} kkal, protein ${m.protein_g} g, karbo ${m.carbs_g} g, lemak ${m.fat_g} g
+
+    Aturan:
+    - Bagi makro total ke tiap komponen secara realistis. Jumlah makro semua komponen HARUS = total di atas.
+    - Sertakan takaran di nama komponen (mis. "Nasi putih 150g").
+    - Kalau menunya emang tunggal, balikin 1 komponen aja.
+
+    Balas HANYA JSON valid (tanpa markdown/backtick): array of ${ITEM_SHAPE}
+  `;
+
+  const result = await model.generateContent(prompt);
+  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+  const parsed = JSON.parse(cleanJson);
+  const items = Array.isArray(parsed)
+    ? parsed.map(cleanItem).filter((x): x is PlannedItem => !!x).slice(0, 8)
+    : null;
+  return { items: items && items.length > 0 ? items : null, usage: readUsage(result.response) };
 }
