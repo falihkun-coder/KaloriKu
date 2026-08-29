@@ -12,6 +12,7 @@ import {
   Calculator,
   TrendingUp,
   CalendarDays,
+  CalendarCheck,
   BookMarked,
   MonitorPlay,
   Target,
@@ -30,6 +31,7 @@ import { auth } from "@/lib/firebase";
 const ALL_PAGES = [
   { href: "/", icon: Home, label: "Beranda" },
   { href: "/riwayat", icon: UtensilsCrossed, label: "Riwayat" },
+  { href: "/rencana", icon: CalendarCheck, label: "Rencana" },
   { href: "/scan", icon: ScanLine, label: "Scan AI" },
   { href: "/simulator", icon: Calculator, label: "Simulator" },
   { href: "/tren", icon: TrendingUp, label: "Berat & Tren" },

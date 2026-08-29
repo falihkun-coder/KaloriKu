@@ -18,6 +18,7 @@ import { MacroDonut } from "@/components/dashboard/macro-donut";
 import { MealBreakdown } from "@/components/dashboard/meal-breakdown";
 import { TodayEntries } from "@/components/dashboard/today-entries";
 import { WaterCard } from "@/components/dashboard/water-card";
+import { PlanCard } from "@/components/dashboard/plan-card";
 import { ExerciseCard } from "@/components/dashboard/exercise-card";
 import { AdvisorCard } from "@/components/dashboard/advisor-card";
 import { useAuth } from "@/components/auth-provider";
@@ -97,6 +98,9 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Menu hari ini — jawaban "mau makan apa" */}
+      <PlanCard />
 
       {/* Macro vs target */}
       <MacroCards goals={goals} consumed={consumed} />

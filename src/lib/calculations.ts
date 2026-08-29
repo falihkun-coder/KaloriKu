@@ -250,6 +250,51 @@ export function todayDayKey(input: Date = new Date()): DayKey {
   return map[wib.getUTCDay()];
 }
 
+// ===== Rencana makan mingguan =====
+
+/** Satu slot makan yang udah direncanain (dari library atau hasil AI). */
+export type PlannedMeal = {
+  name: string;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  portion: string;
+  /** Kalau berasal dari meal library — biar bisa 1-tap log persis */
+  mealId?: string;
+  /** Kenapa menu ini dipilih (1 kalimat dari AI) */
+  reason?: string;
+};
+
+export type DayPlan = Partial<Record<MealType, PlannedMeal>>;
+export type MealPlan = { userId?: string; days: Record<DayKey, DayPlan>; updatedAt?: string };
+
+export const EMPTY_MEAL_PLAN: MealPlan = {
+  days: { sen: {}, sel: {}, rab: {}, kam: {}, jum: {}, sab: {}, min: {} },
+};
+
+/** Total makro satu hari di rencana. */
+export function dayPlanTotals(day: DayPlan): MacroTotals {
+  return MEAL_ORDER.reduce(
+    (acc, m) => {
+      const p = day[m];
+      if (!p) return acc;
+      return {
+        kcal: acc.kcal + (p.kcal || 0),
+        protein_g: acc.protein_g + (p.protein_g || 0),
+        carbs_g: acc.carbs_g + (p.carbs_g || 0),
+        fat_g: acc.fat_g + (p.fat_g || 0),
+      };
+    },
+    { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
+  );
+}
+
+/** Ada isinya nggak rencana ini (minimal 1 slot keisi). */
+export function planHasContent(plan: MealPlan): boolean {
+  return WEEKDAY_ORDER.some((d) => MEAL_ORDER.some((m) => plan.days[d]?.[m]));
+}
+
 export type WorkoutType = "full-body" | "cardio" | "badminton" | "jalan" | "rest" | "lainnya";
 export const WORKOUT_LABELS: Record<WorkoutType, string> = {
   "full-body": "Full Body",

@@ -22,8 +22,12 @@ import {
   WorkoutSchedule,
   ScheduleDay,
   DayKey,
+  MealType,
+  MealPlan,
+  PlannedMeal,
   DEFAULT_GOALS,
   DEFAULT_WORKOUT_SCHEDULE,
+  EMPTY_MEAL_PLAN,
   dateKeyWIB,
   mealLabel,
   guessMealCategory,
@@ -64,6 +68,7 @@ interface AppState {
   exercises: ExerciseEntry[];
   playlists: Playlist[];
   schedule: WorkoutSchedule;
+  mealPlan: MealPlan;
   aiUsage: AiUsageStats;
   profile: UserProfile;
   isLoading: boolean;
@@ -95,6 +100,10 @@ interface AppState {
   deletePlaylist: (id: string) => Promise<void>;
   /** Set aktivitas 1 hari di jadwal olahraga mingguan (persist per-user). */
   setScheduleDay: (day: DayKey, data: ScheduleDay) => Promise<void>;
+  /** Simpan seluruh rencana makan mingguan (hasil generate AI). */
+  saveMealPlan: (days: MealPlan["days"]) => Promise<void>;
+  /** Set/hapus 1 slot makan di rencana (null = kosongin). */
+  setPlanSlot: (day: DayKey, meal: MealType, planned: PlannedMeal | null) => Promise<void>;
   /** Tambah air minum hari ini (ml). */
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
@@ -124,6 +133,7 @@ export const useStore = create<AppState>((set, get) => ({
   exercises: [],
   playlists: [],
   schedule: DEFAULT_WORKOUT_SCHEDULE,
+  mealPlan: EMPTY_MEAL_PLAN,
   aiUsage: { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 },
   profile: {},
   isLoading: false,
@@ -154,6 +164,7 @@ export const useStore = create<AppState>((set, get) => ({
       const userDocRef = doc(db, "users", currentUid);
       const aiUsageDocRef = doc(db, "aiUsage", currentUid);
       const scheduleDocRef = doc(db, "workoutSchedule", currentUid);
+      const mealPlanDocRef = doc(db, "mealPlans", currentUid);
 
       const [
         entrySnapshot,
@@ -166,6 +177,7 @@ export const useStore = create<AppState>((set, get) => ({
         userDocSnap,
         aiUsageDocSnap,
         scheduleDocSnap,
+        mealPlanDocSnap,
       ] = await Promise.all([
         getDocs(entryQuery),
         getDocs(weightQuery),
@@ -177,6 +189,7 @@ export const useStore = create<AppState>((set, get) => ({
         getDoc(userDocRef),
         getDoc(aiUsageDocRef),
         getDoc(scheduleDocRef),
+        getDoc(mealPlanDocRef),
       ]);
 
       const entries = sortByCreatedDesc(
@@ -235,7 +248,31 @@ export const useStore = create<AppState>((set, get) => ({
         schedule = { userId: currentUid, days: { ...DEFAULT_WORKOUT_SCHEDULE.days, ...(saved.days || {}) } };
       }
 
-      set({ entries, weights, waterLogs, meals, exercises, playlists, schedule, aiUsage, goals, profile, isLoading: false });
+      // Rencana makan: merge sama struktur kosong biar semua hari selalu ada
+      let mealPlan: MealPlan = { ...EMPTY_MEAL_PLAN, userId: currentUid };
+      if (mealPlanDocSnap.exists()) {
+        const saved = mealPlanDocSnap.data() as MealPlan;
+        mealPlan = {
+          userId: currentUid,
+          updatedAt: saved.updatedAt,
+          days: { ...EMPTY_MEAL_PLAN.days, ...(saved.days || {}) },
+        };
+      }
+
+      set({
+        entries,
+        weights,
+        waterLogs,
+        meals,
+        exercises,
+        playlists,
+        schedule,
+        mealPlan,
+        aiUsage,
+        goals,
+        profile,
+        isLoading: false,
+      });
     } catch (error) {
       console.error("Error fetching data:", error);
       set({ isLoading: false });
@@ -402,6 +439,43 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error("Error saving schedule:", error);
       set({ schedule: prev });
+      throw error;
+    }
+  },
+
+  saveMealPlan: async (days) => {
+    const state = get();
+    if (!state.userId) throw new Error("User not authenticated");
+    const prev = state.mealPlan;
+    const next: MealPlan = { userId: state.userId, days, updatedAt: new Date().toISOString() };
+    set({ mealPlan: next }); // optimistic
+    try {
+      await setDoc(doc(db, "mealPlans", state.userId), next);
+    } catch (error) {
+      console.error("Error saving meal plan:", error);
+      set({ mealPlan: prev });
+      throw error;
+    }
+  },
+
+  setPlanSlot: async (day, meal, planned) => {
+    const state = get();
+    if (!state.userId) throw new Error("User not authenticated");
+    const prev = state.mealPlan;
+    const dayPlan = { ...(prev.days[day] || {}) };
+    if (planned) dayPlan[meal] = planned;
+    else delete dayPlan[meal];
+    const next: MealPlan = {
+      userId: state.userId,
+      updatedAt: new Date().toISOString(),
+      days: { ...prev.days, [day]: dayPlan },
+    };
+    set({ mealPlan: next }); // optimistic
+    try {
+      await setDoc(doc(db, "mealPlans", state.userId), next);
+    } catch (error) {
+      console.error("Error saving plan slot:", error);
+      set({ mealPlan: prev });
       throw error;
     }
   },
