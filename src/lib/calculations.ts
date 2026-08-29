@@ -414,7 +414,13 @@ export type PlannedMeal = {
 };
 
 export type DayPlan = Partial<Record<MealType, PlannedMeal>>;
-export type MealPlan = { userId?: string; days: Record<DayKey, DayPlan>; updatedAt?: string };
+export type MealPlan = {
+  userId?: string;
+  days: Record<DayKey, DayPlan>;
+  updatedAt?: string;
+  /** Makanan/bahan yang gak disukai — gak akan muncul lagi pas generate */
+  dislikes?: string[];
+};
 
 export const EMPTY_MEAL_PLAN: MealPlan = {
   days: { sen: {}, sel: {}, rab: {}, kam: {}, jum: {}, sab: {}, min: {} },

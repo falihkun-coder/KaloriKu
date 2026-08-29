@@ -104,6 +104,8 @@ interface AppState {
   saveMealPlan: (days: MealPlan["days"]) => Promise<void>;
   /** Set/hapus 1 slot makan di rencana (null = kosongin). */
   setPlanSlot: (day: DayKey, meal: MealType, planned: PlannedMeal | null) => Promise<void>;
+  /** Ganti daftar makanan yang gak disukai (dipakai AI biar gak nyaranin lagi). */
+  setDislikes: (dislikes: string[]) => Promise<void>;
   /** Tambah air minum hari ini (ml). */
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
@@ -256,6 +258,7 @@ export const useStore = create<AppState>((set, get) => ({
           userId: currentUid,
           updatedAt: saved.updatedAt,
           days: { ...EMPTY_MEAL_PLAN.days, ...(saved.days || {}) },
+          dislikes: Array.isArray(saved.dislikes) ? saved.dislikes : [],
         };
       }
 
@@ -447,7 +450,13 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     if (!state.userId) throw new Error("User not authenticated");
     const prev = state.mealPlan;
-    const next: MealPlan = { userId: state.userId, days, updatedAt: new Date().toISOString() };
+    // dislikes preferensi user — jangan keinjek pas generate ulang
+    const next: MealPlan = {
+      userId: state.userId,
+      days,
+      updatedAt: new Date().toISOString(),
+      dislikes: prev.dislikes || [],
+    };
     set({ mealPlan: next }); // optimistic
     try {
       await setDoc(doc(db, "mealPlans", state.userId), next);
@@ -469,12 +478,39 @@ export const useStore = create<AppState>((set, get) => ({
       userId: state.userId,
       updatedAt: new Date().toISOString(),
       days: { ...prev.days, [day]: dayPlan },
+      dislikes: prev.dislikes || [],
     };
     set({ mealPlan: next }); // optimistic
     try {
       await setDoc(doc(db, "mealPlans", state.userId), next);
     } catch (error) {
       console.error("Error saving plan slot:", error);
+      set({ mealPlan: prev });
+      throw error;
+    }
+  },
+
+  setDislikes: async (dislikes) => {
+    const state = get();
+    if (!state.userId) throw new Error("User not authenticated");
+    const prev = state.mealPlan;
+    // rapihin: trim, buang kosong & duplikat (case-insensitive), maks 40
+    const seen = new Set<string>();
+    const clean: string[] = [];
+    for (const d of dislikes) {
+      const v = d.trim().slice(0, 60);
+      const key = v.toLowerCase();
+      if (!v || seen.has(key)) continue;
+      seen.add(key);
+      clean.push(v);
+      if (clean.length >= 40) break;
+    }
+    const next: MealPlan = { ...prev, userId: state.userId, dislikes: clean };
+    set({ mealPlan: next }); // optimistic
+    try {
+      await setDoc(doc(db, "mealPlans", state.userId), next);
+    } catch (error) {
+      console.error("Error saving dislikes:", error);
       set({ mealPlan: prev });
       throw error;
     }

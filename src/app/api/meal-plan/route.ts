@@ -21,12 +21,16 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const preferences = body?.preferences ? String(body.preferences).slice(0, 400) : undefined;
 
-    const [mealsSnap, goalsDoc] = await Promise.all([
+    const [mealsSnap, goalsDoc, planDoc] = await Promise.all([
       adminDb.collection("meals").where("userId", "==", uid).get(),
       adminDb.collection("goals").doc(uid).get(),
+      adminDb.collection("mealPlans").doc(uid).get(),
     ]);
     const library = mealsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[];
     const goals: Goals = goalsDoc.exists ? { ...DEFAULT_GOALS, ...(goalsDoc.data() as Goals) } : DEFAULT_GOALS;
+    // Blacklist dibaca dari server biar selalu terbaru (client bisa stale)
+    const saved = planDoc.exists ? (planDoc.data() as { dislikes?: unknown }) : null;
+    const dislikes = Array.isArray(saved?.dislikes) ? (saved.dislikes as string[]).slice(0, 40) : [];
 
     // Mode "slot": ganti satu menu doang
     if (body?.mode === "slot") {
@@ -42,12 +46,13 @@ export async function POST(request: Request) {
         avoid: body.avoid ? String(body.avoid).slice(0, 120) : undefined,
         otherMealsToday: Array.isArray(body.otherMealsToday) ? body.otherMealsToday.slice(0, 4) : undefined,
         preferences,
+        dislikes,
       });
       await recordAiUsage(uid, usage);
       return NextResponse.json({ planned });
     }
 
-    const { days, usage } = await generateWeeklyPlan({ goals, library, preferences });
+    const { days, usage } = await generateWeeklyPlan({ goals, library, preferences, dislikes });
     await recordAiUsage(uid, usage);
     return NextResponse.json({ days });
   } catch (error) {

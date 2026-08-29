@@ -1,7 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarCheck, Sparkles, Loader2, Plus, RefreshCw, Trash2, ChevronDown, Utensils } from "lucide-react";
+import {
+  CalendarCheck,
+  Sparkles,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  ChevronDown,
+  Utensils,
+  Pencil,
+  ThumbsDown,
+  X,
+  Ban,
+} from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
@@ -30,22 +43,45 @@ const MEAL_EMOJI: Record<MealType, string> = {
   snack: "🍪",
 };
 
+/** Draft edit 1 slot — angka disimpan sebagai string biar input enak diketik */
+type SlotEdit = {
+  day: DayKey;
+  meal: MealType;
+  name: string;
+  kcal: string;
+  protein: string;
+  carbs: string;
+  fat: string;
+  portion: string;
+};
+
 export default function RencanaPage() {
   const mealPlan = useStore((s) => s.mealPlan);
   const goals = useStore((s) => s.goals);
   const meals = useStore((s) => s.meals);
   const saveMealPlan = useStore((s) => s.saveMealPlan);
   const setPlanSlot = useStore((s) => s.setPlanSlot);
+  const setDislikes = useStore((s) => s.setDislikes);
   const addEntry = useStore((s) => s.addEntry);
   const openFoodDialog = useStore((s) => s.openFoodDialog);
 
   const today = todayDayKey();
   const hasPlan = planHasContent(mealPlan);
+  const dislikes = mealPlan.dislikes || [];
 
   const [prefs, setPrefs] = useState("");
   const [generating, setGenerating] = useState(false);
   const [busySlot, setBusySlot] = useState<string | null>(null);
   const [openDay, setOpenDay] = useState<DayKey>(today);
+
+  // Edit 1 slot manual
+  const [edit, setEdit] = useState<SlotEdit | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Modal "gak suka" — user boleh persingkat jadi kata kunci (mis. "jengkol")
+  const [dislikeDraft, setDislikeDraft] = useState<{ day: DayKey; meal: MealType; text: string } | null>(null);
+  const [savingDislike, setSavingDislike] = useState(false);
+  const [newDislike, setNewDislike] = useState("");
 
   const generateWeek = async () => {
     if (hasPlan && !window.confirm("Ganti seluruh rencana minggu ini dengan yang baru?")) return;
@@ -159,6 +195,90 @@ export default function RencanaPage() {
     }
   };
 
+  // ===== Edit slot manual =====
+  const openSlotEdit = (day: DayKey, meal: MealType, p?: PlannedMeal) => {
+    setEdit({
+      day,
+      meal,
+      name: p?.name || "",
+      kcal: p ? String(p.kcal) : "",
+      protein: p ? String(p.protein_g) : "",
+      carbs: p ? String(p.carbs_g) : "",
+      fat: p ? String(p.fat_g) : "",
+      portion: p?.portion || "1 porsi",
+    });
+  };
+
+  const saveSlotEdit = async () => {
+    if (!edit) return;
+    if (!edit.name.trim()) {
+      toast.error("Nama menunya diisi dulu ya");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const prev = mealPlan.days[edit.day]?.[edit.meal];
+      await setPlanSlot(edit.day, edit.meal, {
+        name: edit.name.trim(),
+        kcal: Number(edit.kcal) || 0,
+        protein_g: Number(edit.protein) || 0,
+        carbs_g: Number(edit.carbs) || 0,
+        fat_g: Number(edit.fat) || 0,
+        portion: edit.portion.trim() || "1 porsi",
+        // alasan AI lama gak relevan lagi kalau menunya diganti manual
+        ...(prev?.reason && prev.name === edit.name.trim() ? { reason: prev.reason } : {}),
+      });
+      toast.success("Menu diperbarui ✏️");
+      setEdit(null);
+    } catch {
+      toast.error("Gagal simpan perubahan");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  // ===== Blacklist "gak suka" =====
+  const confirmDislike = async () => {
+    if (!dislikeDraft) return;
+    const text = dislikeDraft.text.trim();
+    if (!text) {
+      toast.error("Tulis dulu apa yang gak kamu suka");
+      return;
+    }
+    setSavingDislike(true);
+    try {
+      await setDislikes([...dislikes, text]);
+      const { day, meal } = dislikeDraft;
+      setDislikeDraft(null);
+      toast.success(`"${text}" gak bakal muncul lagi 🚫`);
+      await rerollSlot(day, meal); // langsung cariin gantinya
+    } catch {
+      toast.error("Gagal simpan");
+    } finally {
+      setSavingDislike(false);
+    }
+  };
+
+  const removeDislike = async (name: string) => {
+    try {
+      await setDislikes(dislikes.filter((d) => d !== name));
+    } catch {
+      toast.error("Gagal hapus");
+    }
+  };
+
+  const addDislikeManual = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const v = newDislike.trim();
+    if (!v) return;
+    try {
+      await setDislikes([...dislikes, v]);
+      setNewDislike("");
+    } catch {
+      toast.error("Gagal simpan");
+    }
+  };
+
   const todayPlan = mealPlan.days[today] || {};
   const todayTotals = dayPlanTotals(todayPlan);
   const nowMeal = currentMealWIB();
@@ -263,6 +383,61 @@ export default function RencanaPage() {
             makanan yang emang kamu suka.
           </p>
         )}
+      </div>
+
+      {/* Blacklist makanan */}
+      <div className="rounded-[22px] border border-border bg-card p-5 md:p-6 space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-[11px] bg-accent text-primary flex items-center justify-center shrink-0">
+            <Ban size={17} />
+          </div>
+          <div>
+            <p className="font-heading font-bold tracking-tight text-[15px]">Gak disukai</p>
+            <p className="text-[12px] text-muted-foreground">
+              Yang di sini gak bakal muncul lagi tiap generate — termasuk menu yang mengandungnya.
+            </p>
+          </div>
+        </div>
+
+        {dislikes.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {dislikes.map((d) => (
+              <span
+                key={d}
+                className="flex items-center gap-1.5 pl-3 pr-1.5 py-1.5 rounded-full text-[12px] font-semibold bg-destructive/10 text-destructive border border-destructive/25"
+              >
+                {d}
+                <button
+                  onClick={() => removeDislike(d)}
+                  aria-label={`Hapus ${d} dari daftar gak disukai`}
+                  className="h-5 w-5 rounded-full flex items-center justify-center hover:bg-destructive/20 transition-colors"
+                >
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[12px] text-muted-foreground">
+            Belum ada. Tap <span className="font-semibold text-foreground">👎 Gak suka</span> di menu manapun, atau
+            tambahin sendiri di bawah.
+          </p>
+        )}
+
+        <form onSubmit={addDislikeManual} className="flex gap-2">
+          <input
+            value={newDislike}
+            onChange={(e) => setNewDislike(e.target.value)}
+            placeholder="Tambah — mis. jengkol, seafood, pete"
+            className="flex-1 min-w-0 rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+          />
+          <button
+            type="submit"
+            className="px-4 rounded-[12px] border border-border text-[13px] font-semibold text-foreground hover:border-primary/40 transition-colors shrink-0"
+          >
+            Tambah
+          </button>
+        </form>
       </div>
 
       {/* Rencana per hari */}
@@ -372,6 +547,23 @@ export default function RencanaPage() {
                               {p ? "Ganti" : "Isiin AI"}
                             </button>
 
+                            <button
+                              onClick={() => openSlotEdit(day, meal, p)}
+                              className="flex items-center gap-1 px-3 h-8 rounded-[9px] border border-border text-[11px] font-semibold text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                            >
+                              <Pencil size={12} /> Edit
+                            </button>
+
+                            {p && (
+                              <button
+                                onClick={() => setDislikeDraft({ day, meal, text: p.name })}
+                                title="Gak suka — jangan munculin lagi"
+                                className="flex items-center gap-1 px-3 h-8 rounded-[9px] border border-border text-[11px] font-semibold text-muted-foreground hover:text-destructive hover:border-destructive/40 transition-colors"
+                              >
+                                <ThumbsDown size={12} /> Gak suka
+                              </button>
+                            )}
+
                             {meals.length > 0 && (
                               <select
                                 value=""
@@ -433,6 +625,185 @@ export default function RencanaPage() {
         Rencana ini pola mingguan — kepake terus tiap minggu sampai kamu generate ulang. Angka gizinya estimasi, bisa
         dikoreksi pas nyatet.
       </p>
+
+      {/* Modal edit slot */}
+      {edit && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+          onClick={() => !savingEdit && setEdit(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-md bg-card border border-border rounded-t-[24px] sm:rounded-[22px] p-5 md:p-6 space-y-4 max-h-[90vh] overflow-y-auto"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-[11px] bg-accent text-primary flex items-center justify-center shrink-0">
+                  <Pencil size={16} />
+                </div>
+                <div>
+                  <p className="font-heading font-bold tracking-tight text-[15px]">Edit menu</p>
+                  <p className="text-[12px] text-muted-foreground">
+                    {WEEKDAY_LABELS[edit.day]} · {MEAL_LABELS[edit.meal]}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEdit(null)}
+                aria-label="Tutup"
+                className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted transition-colors shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            <label className="space-y-1 block">
+              <span className="text-[11px] font-semibold text-muted-foreground">Nama menu</span>
+              <input
+                value={edit.name}
+                onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                placeholder="mis. Nasi + ayam bakar + tumis buncis"
+                className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+            </label>
+
+            <label className="space-y-1 block">
+              <span className="text-[11px] font-semibold text-muted-foreground">Porsi</span>
+              <input
+                value={edit.portion}
+                onChange={(e) => setEdit({ ...edit, portion: e.target.value })}
+                placeholder="1 porsi"
+                className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+            </label>
+
+            <div className="grid grid-cols-4 gap-2">
+              {(
+                [
+                  ["kcal", "kkal"],
+                  ["protein", "P (g)"],
+                  ["carbs", "K (g)"],
+                  ["fat", "L (g)"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="rounded-[12px] bg-background border border-border px-3 py-2">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={edit[key]}
+                    onChange={(e) => setEdit({ ...edit, [key]: e.target.value })}
+                    className="w-full bg-transparent outline-none font-heading font-bold tabular-nums text-[15px]"
+                  />
+                </div>
+              ))}
+            </div>
+
+            {meals.length > 0 && (
+              <label className="space-y-1 block">
+                <span className="text-[11px] font-semibold text-muted-foreground">Atau ambil dari favorit</span>
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const m = meals.find((x) => x.id === e.target.value);
+                    if (!m) return;
+                    setEdit({
+                      ...edit,
+                      name: m.restaurant ? `${m.name} (${m.restaurant})` : m.name,
+                      kcal: String(m.kcal),
+                      protein: String(m.protein_g),
+                      carbs: String(m.carbs_g),
+                      fat: String(m.fat_g),
+                      portion: m.portion || "1 porsi",
+                    });
+                  }}
+                  className="w-full rounded-[12px] bg-background border border-border px-3 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+                >
+                  <option value="">Pilih favorit…</option>
+                  {meals.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.restaurant ? `${m.name} (${m.restaurant})` : m.name} · {fmtNum(m.kcal)} kkal
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => setEdit(null)}
+                disabled={savingEdit}
+                className="flex-1 h-10 rounded-[12px] border border-border text-[13px] font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={saveSlotEdit}
+                disabled={savingEdit}
+                className="flex-[2] flex items-center justify-center gap-2 h-10 rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold transition-transform active:scale-[0.98] disabled:opacity-50"
+              >
+                {savingEdit ? <Loader2 size={15} className="animate-spin" /> : <Pencil size={15} />}
+                {savingEdit ? "Menyimpan..." : "Simpan"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal "gak suka" */}
+      {dislikeDraft && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+          onClick={() => !savingDislike && setDislikeDraft(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full sm:max-w-md bg-card border border-border rounded-t-[24px] sm:rounded-[22px] p-5 md:p-6 space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-[11px] bg-destructive/10 text-destructive flex items-center justify-center shrink-0">
+                <ThumbsDown size={16} />
+              </div>
+              <div>
+                <p className="font-heading font-bold tracking-tight text-[15px]">Gak suka apa nih?</p>
+                <p className="text-[12px] text-muted-foreground">Ini gak bakal muncul lagi di rencana berikutnya.</p>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <input
+                value={dislikeDraft.text}
+                onChange={(e) => setDislikeDraft({ ...dislikeDraft, text: e.target.value })}
+                className="w-full rounded-[12px] bg-background border border-border px-3.5 py-2.5 text-sm outline-none focus:border-primary transition-colors"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                💡 Persingkat biar lebih ngefek — mis. tulis{" "}
+                <span className="font-semibold text-foreground">&quot;drumstick&quot;</span> aja kalau yang gak kamu suka
+                cuma ayam bagian itu, bukan seluruh menunya.
+              </p>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setDislikeDraft(null)}
+                disabled={savingDislike}
+                className="flex-1 h-10 rounded-[12px] border border-border text-[13px] font-semibold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                onClick={confirmDislike}
+                disabled={savingDislike}
+                className="flex-[2] flex items-center justify-center gap-2 h-10 rounded-[12px] bg-destructive text-white text-[13px] font-semibold transition-transform active:scale-[0.98] disabled:opacity-50"
+              >
+                {savingDislike ? <Loader2 size={15} className="animate-spin" /> : <Ban size={15} />}
+                {savingDislike ? "Nyimpen..." : "Blokir & ganti menu"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

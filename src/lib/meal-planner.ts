@@ -44,6 +44,18 @@ function targetsBlock(goals: Goals): string {
   return `${goals.kcalTarget} kkal/hari · protein ${goals.proteinTarget} g · karbo ${goals.carbsTarget} g · lemak ${goals.fatTarget} g`;
 }
 
+// Blacklist user — aturan paling keras, di atas preferensi lain.
+function dislikesBlock(dislikes?: string[]): string {
+  const list = (dislikes || []).map((d) => d.trim()).filter(Boolean);
+  if (list.length === 0) return "";
+  return `
+    ❌ DAFTAR TIDAK DISUKAI (ATURAN PALING KERAS — JANGAN DILANGGAR):
+    ${list.map((d) => `- ${d}`).join("\n    ")}
+    JANGAN pernah menyarankan menu di atas, ATAU menu apa pun yang MENGANDUNG / berbahan dasar /
+    merupakan variasi dekat dari item-item itu. Kalau sebuah menu favorit user mengandung salah satunya,
+    lewati menu itu dan pilih alternatif lain. Aturan ini mengalahkan preferensi & daftar favorit.`;
+}
+
 /**
  * Generate rencana makan 7 hari (Senin–Minggu) dari target + meal library user.
  * Diprioritaskan pakai favorit yang udah ada biar realistis & gampang dieksekusi.
@@ -52,6 +64,7 @@ export async function generateWeeklyPlan(input: {
   goals: Goals;
   library: SavedMeal[];
   preferences?: string;
+  dislikes?: string[];
 }): Promise<{ days: MealPlan["days"]; usage?: AiUsage }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
@@ -68,6 +81,7 @@ export async function generateWeeklyPlan(input: {
     ${libraryBlock(input.library)}
 
     ${input.preferences?.trim() ? `PREFERENSI/CATATAN USER (WAJIB dihormati): "${input.preferences.trim()}"` : ""}
+    ${dislikesBlock(input.dislikes)}
 
     Aturan:
     - Tiap hari: sarapan, siang, malam WAJIB ada. snack opsional (isi kalau masih ada ruang kalori).
@@ -116,6 +130,7 @@ export async function generateSingleSlot(input: {
   avoid?: string;
   otherMealsToday?: { meal: MealType; name: string; kcal: number }[];
   preferences?: string;
+  dislikes?: string[];
 }): Promise<{ planned: PlannedMeal | null; usage?: AiUsage }> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
@@ -135,6 +150,7 @@ export async function generateSingleSlot(input: {
     ${others ? `Menu lain di hari yang sama:\n${others}\nSisa jatah buat slot ini: ~${sisaKcal} kkal.` : ""}
     ${input.avoid ? `JANGAN kasih menu yang sama/mirip dengan: "${input.avoid}" — user minta ganti.` : ""}
     ${input.preferences?.trim() ? `PREFERENSI USER (WAJIB dihormati): "${input.preferences.trim()}"` : ""}
+    ${dislikesBlock(input.dislikes)}
 
     FAVORIT USER (prioritaskan, tulis nama PERSIS):
     ${libraryBlock(input.library)}
