@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp, BookMarked, Dumbbell, MonitorPlay, CalendarDays, CalendarCheck } from "lucide-react";
+import { Home, UtensilsCrossed, Plus, Target, LogOut, Flame, ScanLine, Calculator, TrendingUp, BookMarked, Dumbbell, MonitorPlay, CalendarDays, CalendarCheck, ChartColumnBig } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOut } from "firebase/auth";
 import { auth } from "@/lib/firebase";
@@ -23,6 +23,7 @@ export function Sidebar() {
     { href: "/rencana", icon: CalendarCheck, label: "Rencana Makan" },
     { href: "/scan", icon: ScanLine, label: "Scan AI" },
     { href: "/simulator", icon: Calculator, label: "Simulator" },
+    { href: "/rekap", icon: ChartColumnBig, label: "Rekap" },
     { href: "/tren", icon: TrendingUp, label: "Berat & Tren" },
     { href: "/jadwal", icon: CalendarDays, label: "Jadwal Olahraga" },
     { href: "/library", icon: BookMarked, label: "Meal Library" },

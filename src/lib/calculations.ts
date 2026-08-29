@@ -174,6 +174,153 @@ export type MacroTotals = {
   fat_g: number;
 };
 
+// ===== Agregasi buat halaman Rekap (statistik gambar besar) =====
+
+/** Satu titik harian: masuk (makanan), terbakar (olahraga), dan net-nya. */
+export type DailyStat = {
+  date: string;
+  kcal: number;
+  protein_g: number;
+  carbs_g: number;
+  fat_g: number;
+  burned: number;
+  /** makanan − olahraga */
+  net: number;
+  logged: boolean;
+};
+
+/** Deret harian gabungan makan + olahraga untuk n hari terakhir (lama → baru). */
+export function dailyStats(
+  entries: FoodEntry[],
+  exercises: ExerciseEntry[],
+  days: number,
+  today: string = dateKeyWIB()
+): DailyStat[] {
+  const out: DailyStat[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const date = shiftDateKey(today, -i);
+    const dayEntries = entriesForDay(entries, date);
+    const t = macroTotals(dayEntries);
+    const burned = burnedOn(exercises, date);
+    out.push({
+      date,
+      kcal: t.kcal,
+      protein_g: t.protein_g,
+      carbs_g: t.carbs_g,
+      fat_g: t.fat_g,
+      burned,
+      net: t.kcal - burned,
+      logged: dayEntries.length > 0,
+    });
+  }
+  return out;
+}
+
+export type AdherenceStats = {
+  daysLogged: number;
+  daysTotal: number;
+  /** hari yang tercatat DAN kalorinya <= target */
+  daysOnTarget: number;
+  avgKcal: number;
+  avgProtein: number;
+  avgBurned: number;
+  /** rata-rata net (masuk − terbakar) di hari yang tercatat */
+  avgNet: number;
+};
+
+/** Ringkasan kepatuhan di rentang tertentu — cuma ngitung hari yang ada catatannya. */
+export function adherenceStats(stats: DailyStat[], kcalTarget: number): AdherenceStats {
+  const logged = stats.filter((s) => s.logged);
+  const n = logged.length || 1;
+  return {
+    daysLogged: logged.length,
+    daysTotal: stats.length,
+    daysOnTarget: logged.filter((s) => s.kcal <= kcalTarget).length,
+    avgKcal: Math.round(logged.reduce((s, d) => s + d.kcal, 0) / n),
+    avgProtein: Math.round(logged.reduce((s, d) => s + d.protein_g, 0) / n),
+    avgBurned: Math.round(stats.reduce((s, d) => s + d.burned, 0) / (stats.length || 1)),
+    avgNet: Math.round(logged.reduce((s, d) => s + d.net, 0) / n),
+  };
+}
+
+/** Rata-rata kalori per hari-dalam-seminggu — nunjukin pola (mis. weekend bocor). */
+export function byDayOfWeek(stats: DailyStat[]): { day: DayKey; avgKcal: number; count: number }[] {
+  const buckets = new Map<DayKey, number[]>();
+  for (const s of stats) {
+    if (!s.logged) continue;
+    const d = todayDayKey(new Date(`${s.date}T12:00:00+07:00`));
+    const list = buckets.get(d) || [];
+    list.push(s.kcal);
+    buckets.set(d, list);
+  }
+  return WEEKDAY_ORDER.map((day) => {
+    const list = buckets.get(day) || [];
+    return {
+      day,
+      avgKcal: list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : 0,
+      count: list.length,
+    };
+  });
+}
+
+/** Total kalori per waktu makan di rentang tertentu. */
+export function mealTimeSplit(entries: FoodEntry[], days: number, today: string = dateKeyWIB()) {
+  const minKey = shiftDateKey(today, -(days - 1));
+  const inRange = entries.filter((e) => {
+    const k = dateKeyWIB(e.createdAt);
+    return k >= minKey && k <= today;
+  });
+  const base = mealBreakdown(inRange);
+  const total = MEAL_ORDER.reduce((s, m) => s + base[m].kcal, 0) || 1;
+  return MEAL_ORDER.map((meal) => ({
+    meal,
+    label: MEAL_LABELS[meal],
+    kcal: Math.round(base[meal].kcal),
+    pct: Math.round((base[meal].kcal / total) * 100),
+  }));
+}
+
+export type TopFood = { name: string; count: number; totalKcal: number; avgKcal: number };
+
+/** Makanan yang paling sering dicatat — ngebongkar pola "makanan default". */
+export function topFoods(entries: FoodEntry[], days: number, limit = 8, today: string = dateKeyWIB()): TopFood[] {
+  const minKey = shiftDateKey(today, -(days - 1));
+  const map = new Map<string, { name: string; count: number; totalKcal: number }>();
+  for (const e of entries) {
+    const k = dateKeyWIB(e.createdAt);
+    if (k < minKey || k > today) continue;
+    const key = (e.name || "").trim().toLowerCase();
+    if (!key) continue;
+    const cur = map.get(key) || { name: e.name.trim(), count: 0, totalKcal: 0 };
+    cur.count++;
+    cur.totalKcal += e.kcal || 0;
+    map.set(key, cur);
+  }
+  return [...map.values()]
+    .map((f) => ({ ...f, totalKcal: Math.round(f.totalKcal), avgKcal: Math.round(f.totalKcal / f.count) }))
+    .sort((a, b) => b.count - a.count || b.totalKcal - a.totalKcal)
+    .slice(0, limit);
+}
+
+/** Kalori terbakar per jenis olahraga di rentang tertentu. */
+export function exerciseSplit(exercises: ExerciseEntry[], days: number, today: string = dateKeyWIB()) {
+  const minKey = shiftDateKey(today, -(days - 1));
+  const map = new Map<ExerciseType, { kcal: number; min: number; sessions: number }>();
+  for (const e of exercises) {
+    const k = dateKeyWIB(e.createdAt);
+    if (k < minKey || k > today) continue;
+    const cur = map.get(e.type) || { kcal: 0, min: 0, sessions: 0 };
+    cur.kcal += e.kcalBurned || 0;
+    cur.min += e.durationMin || 0;
+    cur.sessions++;
+    map.set(e.type, cur);
+  }
+  return EXERCISE_ORDER.map((type) => {
+    const v = map.get(type) || { kcal: 0, min: 0, sessions: 0 };
+    return { type, label: EXERCISE_LABELS[type], kcal: Math.round(v.kcal), min: Math.round(v.min), sessions: v.sessions };
+  }).filter((x) => x.sessions > 0);
+}
+
 export const DEFAULT_GOALS: Goals = {
   kcalTarget: 2000,
   proteinTarget: 120,
