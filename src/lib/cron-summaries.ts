@@ -27,7 +27,16 @@ async function getUserData(uid: string) {
     adminDb.collection("foodEntries").where("userId", "==", uid).where("createdAt", ">=", since).get(),
     adminDb.collection("goals").doc(uid).get(),
     adminDb.collection("weights").where("userId", "==", uid).get(),
-    adminDb.collection("exercises").where("userId", "==", uid).where("createdAt", ">=", since).get(),
+    // fail-soft: olahraga cuma nambah budget — jangan gagalin seluruh ringkasan
+    adminDb
+      .collection("exercises")
+      .where("userId", "==", uid)
+      .where("createdAt", ">=", since)
+      .get()
+      .catch((e) => {
+        console.error("cron: query exercises gagal, lanjut tanpa data olahraga:", e);
+        return { docs: [] as FirebaseFirestore.QueryDocumentSnapshot[] };
+      }),
   ]);
   const entries = entriesSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as FoodEntry[];
   const goals: Goals = goalsDoc.exists ? { ...DEFAULT_GOALS, ...(goalsDoc.data() as Goals) } : DEFAULT_GOALS;

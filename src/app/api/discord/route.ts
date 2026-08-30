@@ -83,14 +83,20 @@ async function getGoals(userId: string): Promise<Goals> {
   return d.exists ? { ...DEFAULT_GOALS, ...(d.data() as Goals) } : DEFAULT_GOALS;
 }
 
+// Fail-soft: olahraga cuma nambah budget kalori, jangan sampai bikin command gagal total.
 async function getRecentExercises(userId: string): Promise<ExerciseEntry[]> {
-  const since = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
-  const snap = await adminDb
-    .collection("exercises")
-    .where("userId", "==", userId)
-    .where("createdAt", ">=", since)
-    .get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[];
+  try {
+    const since = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
+    const snap = await adminDb
+      .collection("exercises")
+      .where("userId", "==", userId)
+      .where("createdAt", ">=", since)
+      .get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ExerciseEntry[];
+  } catch (error) {
+    console.error("getRecentExercises failed (lanjut tanpa data olahraga):", error);
+    return [];
+  }
 }
 
 function currentMealWIB(): MealType {
