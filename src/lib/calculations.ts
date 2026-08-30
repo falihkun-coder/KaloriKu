@@ -499,6 +499,72 @@ export function planHasContent(plan: MealPlan): boolean {
   return WEEKDAY_ORDER.some((d) => MEAL_ORDER.some((m) => plan.days[d]?.[m]));
 }
 
+// ===== Alokasi kalori sisa hari ini (readjust tiap habis nyatet) =====
+
+/** Porsi wajar tiap waktu makan (%). Dipakai buat bagi sisa budget. */
+export const MEAL_KCAL_WEIGHT: Record<MealType, number> = {
+  sarapan: 25,
+  siang: 35,
+  malam: 30,
+  snack: 10,
+};
+
+export type SlotBudget = {
+  meal: MealType;
+  /** udah ada entri makan buat slot ini hari ini */
+  done: boolean;
+  plannedKcal: number;
+  /** jatah kalori optimal buat slot ini dari sisa budget */
+  recommendedKcal: number;
+  /** rencana − rekomendasi (positif = kegedean) */
+  deltaKcal: number;
+};
+
+export type DayAllocation = {
+  /** sisa kalori = target + terbakar − masuk */
+  remainingKcal: number;
+  remainingProtein: number;
+  /** slot yang belum dicatat */
+  pendingCount: number;
+  slots: SlotBudget[];
+  over: boolean;
+};
+
+/**
+ * Bagi sisa kalori hari ini ke waktu makan yang BELUM dicatat, ditimbang
+ * porsi wajarnya. Otomatis nyesuaiin: makin banyak yang udah masuk, makin
+ * kecil jatah sisanya. Slot dianggap "udah" kalau ada entri makan bertipe sama.
+ */
+export function allocateDayPlan(
+  plan: DayPlan,
+  todayEntries: FoodEntry[],
+  goals: Goals,
+  burned = 0
+): DayAllocation {
+  const r = remaining(goals, macroTotals(todayEntries), burned);
+  const eaten = new Set(todayEntries.map((e) => e.meal));
+
+  const planned = MEAL_ORDER.filter((m) => plan[m]);
+  const pending = planned.filter((m) => !eaten.has(m));
+  const weightSum = pending.reduce((s, m) => s + MEAL_KCAL_WEIGHT[m], 0) || 1;
+  const budget = Math.max(0, r.kcal);
+
+  const slots: SlotBudget[] = planned.map((m) => {
+    const done = eaten.has(m);
+    const plannedKcal = plan[m]?.kcal || 0;
+    const recommendedKcal = done ? 0 : Math.round((MEAL_KCAL_WEIGHT[m] / weightSum) * budget);
+    return { meal: m, done, plannedKcal, recommendedKcal, deltaKcal: done ? 0 : plannedKcal - recommendedKcal };
+  });
+
+  return {
+    remainingKcal: r.kcal,
+    remainingProtein: Math.round(r.protein_g),
+    pendingCount: pending.length,
+    slots,
+    over: r.over,
+  };
+}
+
 export type WorkoutType = "full-body" | "cardio" | "badminton" | "jalan" | "rest" | "lainnya";
 export const WORKOUT_LABELS: Record<WorkoutType, string> = {
   "full-body": "Full Body",
