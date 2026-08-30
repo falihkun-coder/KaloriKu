@@ -57,6 +57,12 @@ export function PlanCard() {
   const burned = budgetBurned(goals, exercises, todayKey);
   const alloc = allocateDayPlan(dayPlan, todayEntries, goals, burned);
   const budgetOf = (m: MealType) => alloc.slots.find((s) => s.meal === m);
+  // Nama makanan yang beneran dicatat di slot itu (bisa beda dari rencana)
+  const eatenNames = (m: MealType) =>
+    todayEntries
+      .filter((e) => e.meal === m)
+      .map((e) => e.name)
+      .join(", ");
 
   const logPlanned = async (meal: MealType, p: PlannedMeal) => {
     setBusy(meal);
@@ -152,14 +158,21 @@ export function PlanCard() {
                 </p>
 
                 {done ? (
-                  /* Udah dicatat — angka jatah gak relevan lagi */
+                  /* Udah dicatat — tampilin yang BENERAN dimakan, bukan angka rencana.
+                     Sengaja beda total dari angka jatah: chip hijau, font biasa. */
                   <>
-                    <p className="font-heading font-bold tabular-nums tracking-tight text-[17px] text-muted-foreground leading-tight mt-0.5">
-                      {fmtNum(p.kcal)}
-                      <span className="text-[11px] font-semibold ml-1">kkal tercatat</span>
-                    </p>
-                    <p className="text-[11px] text-muted-foreground truncate mt-0.5 line-through decoration-muted-foreground/40">
-                      {p.name}
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 mt-1 text-[13px] font-semibold tabular-nums"
+                      style={{
+                        backgroundColor: "color-mix(in srgb, var(--positive) 14%, transparent)",
+                        color: "var(--positive)",
+                      }}
+                    >
+                      <Check size={12} strokeWidth={3} />
+                      {fmtNum(b?.actualKcal ?? 0)} kkal tercatat
+                    </span>
+                    <p className="text-[11px] text-muted-foreground truncate mt-1">
+                      {eatenNames(meal) || p.name}
                     </p>
                   </>
                 ) : (
@@ -168,7 +181,7 @@ export function PlanCard() {
                     <p
                       className={cn(
                         "font-heading font-bold tabular-nums tracking-tight leading-tight mt-0.5",
-                        isNow ? "text-[22px]" : "text-[19px] text-muted-foreground"
+                        isNow ? "text-[22px] text-primary" : "text-[19px] text-foreground/60"
                       )}
                     >
                       {fmtNum(b?.recommendedKcal ?? 0)}
@@ -195,15 +208,8 @@ export function PlanCard() {
               </div>
 
               {done ? (
-                <span
-                  className="flex items-center gap-1 px-2.5 h-8 rounded-[9px] text-[11px] font-bold shrink-0"
-                  style={{
-                    backgroundColor: "color-mix(in srgb, var(--positive) 14%, transparent)",
-                    color: "var(--positive)",
-                  }}
-                >
-                  <Check size={12} /> Udah
-                </span>
+                /* chip hijau udah ada di kiri — di sini cukup teks kalem biar gak dobel */
+                <span className="text-[11px] font-semibold text-muted-foreground shrink-0 pr-1">Udah</span>
               ) : (
                 <button
                   onClick={() => logPlanned(meal, p)}

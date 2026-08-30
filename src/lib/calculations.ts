@@ -514,6 +514,8 @@ export type SlotBudget = {
   /** udah ada entri makan buat slot ini hari ini */
   done: boolean;
   plannedKcal: number;
+  /** kalori yang BENERAN tercatat di slot ini hari ini (bukan angka rencana) */
+  actualKcal: number;
   /** jatah kalori optimal buat slot ini dari sisa budget */
   recommendedKcal: number;
   /** target protein buat slot ini — patokan minimal, bukan batas atas */
@@ -545,6 +547,7 @@ export function allocateDayPlan(
 ): DayAllocation {
   const r = remaining(goals, macroTotals(todayEntries), burned);
   const eaten = new Set(todayEntries.map((e) => e.meal));
+  const actual = mealBreakdown(todayEntries);
 
   const planned = MEAL_ORDER.filter((m) => plan[m]);
   const pending = planned.filter((m) => !eaten.has(m));
@@ -561,6 +564,7 @@ export function allocateDayPlan(
       meal: m,
       done,
       plannedKcal,
+      actualKcal: Math.round(actual[m]?.kcal || 0),
       recommendedKcal,
       recommendedProtein: done ? 0 : Math.round(share * proteinLeft),
       deltaKcal: done ? 0 : plannedKcal - recommendedKcal,
