@@ -29,24 +29,12 @@ const MEAL_EMOJI: Record<MealType, string> = {
   snack: "🍪",
 };
 
-/** Label kecil: rencana vs jatah optimal buat slot ini */
-function DeltaHint({ b }: { b: SlotBudget }) {
+/** Verdict singkat: menu contohnya muat gak di jatah ini */
+function fitVerdict(b: SlotBudget): { text: string; color: string } {
   // toleransi 60 kkal — di bawah itu dianggap pas, gak usah rewel
-  if (Math.abs(b.deltaKcal) <= 60) {
-    return <span className="text-primary font-semibold">pas sama jatah</span>;
-  }
-  if (b.deltaKcal > 0) {
-    return (
-      <span className="text-destructive font-semibold">
-        lebih {fmtNum(b.deltaKcal)} kkal — kurangi porsi
-      </span>
-    );
-  }
-  return (
-    <span style={{ color: "var(--positive)" }} className="font-semibold">
-      masih ada ruang {fmtNum(Math.abs(b.deltaKcal))} kkal
-    </span>
-  );
+  if (Math.abs(b.deltaKcal) <= 60) return { text: "pas ✓", color: "var(--primary)" };
+  if (b.deltaKcal > 0) return { text: `lebih ${fmtNum(b.deltaKcal)} — kecilin porsi`, color: "var(--destructive)" };
+  return { text: `muat, sisa ${fmtNum(Math.abs(b.deltaKcal))}`, color: "var(--positive)" };
 }
 
 // "Menu hari ini" — jawaban instan buat "gua mau makan apa", plus jatah kalori
@@ -153,32 +141,56 @@ export function PlanCard() {
 
           return (
             <div key={meal} className="flex items-center gap-3 py-3">
-              <span className={cn("text-[17px] shrink-0", (!isNow || done) && "opacity-60")}>{MEAL_EMOJI[meal]}</span>
+              <span className={cn("text-[17px] shrink-0 self-start mt-1", (!isNow || done) && "opacity-60")}>
+                {MEAL_EMOJI[meal]}
+              </span>
 
               <div className="min-w-0 flex-1">
-                <p
-                  className={cn(
-                    "text-sm truncate",
-                    done
-                      ? "font-semibold text-muted-foreground line-through decoration-muted-foreground/40"
-                      : isNow
-                        ? "font-bold"
-                        : "font-semibold text-muted-foreground"
-                  )}
-                >
-                  {p.name}
-                </p>
-                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                  {MEAL_LABELS[meal]} · {fmtNum(p.kcal)} kkal · P {fmtNum(p.protein_g)} g
-                  {isNow && <span className="text-primary font-semibold"> · sekarang</span>}
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  {MEAL_LABELS[meal]}
+                  {isNow && <span className="text-primary"> · sekarang</span>}
                 </p>
 
-                {/* Jatah optimal — nyesuaiin sendiri tiap ada yang dicatat */}
-                {!done && b && (
-                  <p className="text-[11px] truncate mt-0.5">
-                    <span className="text-muted-foreground">Jatah {fmtNum(b.recommendedKcal)} kkal · </span>
-                    <DeltaHint b={b} />
-                  </p>
+                {done ? (
+                  /* Udah dicatat — angka jatah gak relevan lagi */
+                  <>
+                    <p className="font-heading font-bold tabular-nums tracking-tight text-[17px] text-muted-foreground leading-tight mt-0.5">
+                      {fmtNum(p.kcal)}
+                      <span className="text-[11px] font-semibold ml-1">kkal tercatat</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate mt-0.5 line-through decoration-muted-foreground/40">
+                      {p.name}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    {/* Jatah = angka utama, nyesuaiin sendiri tiap ada yang dicatat */}
+                    <p
+                      className={cn(
+                        "font-heading font-bold tabular-nums tracking-tight leading-tight mt-0.5",
+                        isNow ? "text-[22px]" : "text-[19px] text-muted-foreground"
+                      )}
+                    >
+                      {fmtNum(b?.recommendedKcal ?? 0)}
+                      <span className="text-[12px] font-semibold ml-1">kkal jatah</span>
+                      {b && b.recommendedProtein > 0 && (
+                        <span className="text-[11px] font-medium text-muted-foreground ml-2">
+                          · P ~{fmtNum(b.recommendedProtein)} g
+                        </span>
+                      )}
+                    </p>
+
+                    {/* Menu rencana turun jadi contoh */}
+                    <p className="text-[11px] text-muted-foreground truncate mt-1">
+                      mis. {p.name} · {fmtNum(p.kcal)} kkal
+                      {b && (
+                        <span className="font-semibold" style={{ color: fitVerdict(b).color }}>
+                          {" "}
+                          — {fitVerdict(b).text}
+                        </span>
+                      )}
+                    </p>
+                  </>
                 )}
               </div>
 
@@ -213,7 +225,7 @@ export function PlanCard() {
 
       {alloc.pendingCount > 0 && !alloc.over && (
         <p className="text-[11px] text-muted-foreground mt-3">
-          💡 Jatah dibagi otomatis dari sisa kalori — tiap kamu nyatet, sisanya dihitung ulang.
+          💡 Angka jatah dihitung ulang tiap kamu nyatet — menu di bawahnya cuma contoh yang muat di jatah itu.
         </p>
       )}
     </div>

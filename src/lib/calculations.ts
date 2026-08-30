@@ -516,6 +516,8 @@ export type SlotBudget = {
   plannedKcal: number;
   /** jatah kalori optimal buat slot ini dari sisa budget */
   recommendedKcal: number;
+  /** target protein buat slot ini — patokan minimal, bukan batas atas */
+  recommendedProtein: number;
   /** rencana − rekomendasi (positif = kegedean) */
   deltaKcal: number;
 };
@@ -548,12 +550,21 @@ export function allocateDayPlan(
   const pending = planned.filter((m) => !eaten.has(m));
   const weightSum = pending.reduce((s, m) => s + MEAL_KCAL_WEIGHT[m], 0) || 1;
   const budget = Math.max(0, r.kcal);
+  const proteinLeft = Math.max(0, r.protein_g);
 
   const slots: SlotBudget[] = planned.map((m) => {
     const done = eaten.has(m);
     const plannedKcal = plan[m]?.kcal || 0;
-    const recommendedKcal = done ? 0 : Math.round((MEAL_KCAL_WEIGHT[m] / weightSum) * budget);
-    return { meal: m, done, plannedKcal, recommendedKcal, deltaKcal: done ? 0 : plannedKcal - recommendedKcal };
+    const share = MEAL_KCAL_WEIGHT[m] / weightSum;
+    const recommendedKcal = done ? 0 : Math.round(share * budget);
+    return {
+      meal: m,
+      done,
+      plannedKcal,
+      recommendedKcal,
+      recommendedProtein: done ? 0 : Math.round(share * proteinLeft),
+      deltaKcal: done ? 0 : plannedKcal - recommendedKcal,
+    };
   });
 
   return {
