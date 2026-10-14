@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import { extractFood, ExtractedFood } from "@/lib/ai-extract";
 import { formatDailySummary } from "@/lib/calorie-summary";
@@ -11,9 +12,12 @@ import {
   WaterLog,
   SavedMeal,
   MealType,
+  MealCategory,
   DEFAULT_GOALS,
   DEFAULT_WATER_TARGET_ML,
   MEAL_LABELS,
+  MEAL_CATEGORY_LABELS,
+  mealCategoryOf,
   consumedToday,
   budgetBurned,
   fmtNum,
@@ -146,6 +150,132 @@ async function findUserByChatId(chatId: number) {
   return snap.empty ? null : snap.docs[0];
 }
 
+// Sisa kalori hari ini, net-aware (target + olahraga − masuk) — sama kayak hero web.
+// Gagal ngitung gak boleh blok flow utama, jadi balikin "" aja.
+async function sisaLine(userId: string): Promise<string> {
+  try {
+    const [entries, goals, exercises] = await Promise.all([
+      getRecentEntries(userId),
+      getGoals(userId),
+      getRecentExercises(userId),
+    ]);
+    const sisa = goals.kcalTarget + budgetBurned(goals, exercises) - consumedToday(entries).kcal;
+    return sisa >= 0 ? `Sisa hari ini: ${fmtNum(sisa)} kkal` : `⚠️ Lewat target ${fmtNum(Math.abs(sisa))} kkal`;
+  } catch (e) {
+    console.error("Failed to compute remaining:", e);
+    return "";
+  }
+}
+
+// ===== Meal Library di Telegram (/favorit) =====
+// callback_data Telegram maks 64 byte, jadi state list di-encode ringkas:
+//   lp:<cat>:<page>:<q>        → halaman list
+//   lv:<mealId>:<cat>:<page>:<q> → detail 1 menu
+//   ll:<mealId>:<kodeWaktuMakan> → catat
+const FAV_CATS: Record<string, "semua" | MealCategory> = { a: "semua", m: "makanan", d: "minuman", s: "snack" };
+const FAV_CAT_LABEL: Record<string, string> = { a: "Semua", m: "🍽️ Makan", d: "🥤 Minum", s: "🍪 Snack" };
+const CAT_EMOJI: Record<MealCategory, string> = { makanan: "🍽️", minuman: "🥤", snack: "🍪" };
+const MEAL_CODE: Record<string, MealType> = { s: "sarapan", i: "siang", m: "malam", n: "snack" };
+const MEAL_TO_CODE: Record<MealType, string> = { sarapan: "s", siang: "i", malam: "m", snack: "n" };
+const MEAL_EMOJI: Record<MealType, string> = { sarapan: "🌅", siang: "☀️", malam: "🌙", snack: "🍪" };
+const FAV_PAGE_SIZE = 8;
+
+/** Potong string sampai muat N byte UTF-8 (biar callback_data gak lewat 64 byte). */
+function clipBytes(s: string, max: number): string {
+  let out = s;
+  while (Buffer.byteLength(out, "utf8") > max) out = out.slice(0, -1);
+  return out;
+}
+
+function favLabel(m: SavedMeal): string {
+  return m.restaurant ? `${m.name} (${m.restaurant})` : m.name;
+}
+
+async function getFavorites(userId: string): Promise<SavedMeal[]> {
+  const snap = await adminDb.collection("meals").where("userId", "==", userId).get();
+  return (snap.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[]).sort(
+    (a, b) => (b.useCount || 0) - (a.useCount || 0)
+  );
+}
+
+/** Parse "<cat>:<page>:<q>" — q boleh ngandung ":" jadi split manual. */
+function parseFavState(s: string): { cat: string; page: number; q: string } {
+  const [cat = "a", page = "0", ...rest] = s.split(":");
+  return { cat: FAV_CATS[cat] ? cat : "a", page: Number(page) || 0, q: rest.join(":") };
+}
+
+function favListView(all: SavedMeal[], cat: string, page: number, q: string): { text: string; keyboard: InlineKeyboard } {
+  const category = FAV_CATS[cat] || "semua";
+  const needle = q.trim().toLowerCase();
+  const filtered = all.filter((m) => {
+    if (category !== "semua" && mealCategoryOf(m) !== category) return false;
+    if (needle && !`${m.name} ${m.restaurant || ""}`.toLowerCase().includes(needle)) return false;
+    return true;
+  });
+
+  const pages = Math.max(1, Math.ceil(filtered.length / FAV_PAGE_SIZE));
+  const p = Math.min(Math.max(0, page), pages - 1);
+  const slice = filtered.slice(p * FAV_PAGE_SIZE, (p + 1) * FAV_PAGE_SIZE);
+  const state = `${cat}:${p}:${q}`;
+
+  let text = `⭐ Meal Library — ${filtered.length} menu`;
+  if (category !== "semua") text += ` · ${MEAL_CATEGORY_LABELS[category]}`;
+  if (needle) text += ` · cari "${q}"`;
+  text +=
+    filtered.length > 0
+      ? "\n\nTap menu buat catat 👇"
+      : `\n\nGak ada yang cocok.${needle ? " Coba kata lain, mis. /favorit mcd" : ""}`;
+
+  const keyboard: InlineKeyboard["inline_keyboard"] = [
+    Object.keys(FAV_CATS).map((c) => ({
+      text: c === cat ? `• ${FAV_CAT_LABEL[c]}` : FAV_CAT_LABEL[c],
+      callback_data: `lp:${c}:0:${q}`,
+    })),
+    ...slice.map((m) => [
+      {
+        text: `${CAT_EMOJI[mealCategoryOf(m)]} ${clipBytes(favLabel(m), 60)} · ${fmtNum(m.kcal)}`,
+        callback_data: `lv:${m.id}:${state}`,
+      },
+    ]),
+  ];
+
+  const nav: { text: string; callback_data: string }[] = [];
+  if (p > 0) nav.push({ text: "◀", callback_data: `lp:${cat}:${p - 1}:${q}` });
+  if (pages > 1) nav.push({ text: `${p + 1}/${pages}`, callback_data: "noop" });
+  if (p < pages - 1) nav.push({ text: "▶", callback_data: `lp:${cat}:${p + 1}:${q}` });
+  if (nav.length > 0) keyboard.push(nav);
+
+  return { text, keyboard: { inline_keyboard: keyboard } };
+}
+
+function favDetailView(m: SavedMeal, state: string): { text: string; keyboard: InlineKeyboard } {
+  let text = `⭐ ${favLabel(m)}\n`;
+  text += `🔥 ${fmtNum(m.kcal)} kkal · ${m.portion || "1 porsi"}\n`;
+  text += `💪 P ${fmtNum(m.protein_g)} g · 🍚 K ${fmtNum(m.carbs_g)} g · 🥑 L ${fmtNum(m.fat_g)} g`;
+  if (m.items && m.items.length > 0) {
+    text += "\n";
+    for (const it of m.items) text += `\n  • ${it.name} — ${fmtNum(it.kcal)} kkal`;
+  }
+  if (m.useCount) text += `\n\nUdah dicatat ${m.useCount}x`;
+  text += "\n\nCatat sebagai:";
+
+  const now = currentMealWIB();
+  const btn = (mt: MealType) => ({
+    text: `${MEAL_EMOJI[mt]} ${MEAL_LABELS[mt]}${mt === now ? " ✓" : ""}`,
+    callback_data: `ll:${m.id}:${MEAL_TO_CODE[mt]}`,
+  });
+  return {
+    text,
+    keyboard: {
+      inline_keyboard: [
+        [btn("sarapan"), btn("siang")],
+        [btn("malam"), btn("snack")],
+        [{ text: "◀ Kembali", callback_data: `lp:${state}` }],
+      ],
+    },
+  };
+}
+
 export async function POST(request: Request) {
   if (!TELEGRAM_BOT_TOKEN) {
     return NextResponse.json({ error: "bot not configured" }, { status: 503 });
@@ -196,14 +326,8 @@ export async function POST(request: Request) {
 
         // Konfirmasi dulu — hitungan sisa jangan pernah blok flow utama
         let msg = `✅ Tercatat: ${food.name} — ${fmtNum(food.kcal)} kkal`;
-        try {
-          const [entries, goals] = await Promise.all([getRecentEntries(pending.userId), getGoals(pending.userId)]);
-          const consumed = consumedToday(entries);
-          const sisa = goals.kcalTarget - consumed.kcal;
-          msg += `\n\n${sisa >= 0 ? `Sisa hari ini: ${fmtNum(sisa)} kkal` : `⚠️ Lewat target ${fmtNum(Math.abs(sisa))} kkal`}`;
-        } catch (e) {
-          console.error("Failed to compute remaining:", e);
-        }
+        const sisa = await sisaLine(pending.userId);
+        if (sisa) msg += `\n\n${sisa}`;
         await editMessage(chatId, messageId, msg);
         await answerCallback(cb.id, "Tersimpan!");
         return NextResponse.json({ success: true });
@@ -235,6 +359,72 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true });
       }
 
+      // ===== Meal Library (/favorit): list, detail, catat =====
+      if (action === "lp" || action === "lv" || action === "ll") {
+        const owner = await findUserByChatId(chatId);
+        if (!owner) {
+          await answerCallback(cb.id, "Telegram-mu belum terhubung.");
+          return NextResponse.json({ success: true });
+        }
+        const rest = data.slice(3); // buang "lp:" / "lv:" / "ll:"
+
+        // Pindah halaman / ganti filter kategori
+        if (action === "lp") {
+          const { cat, page, q } = parseFavState(rest);
+          const view = favListView(await getFavorites(owner.id), cat, page, q);
+          await editMessage(chatId, messageId, view.text, view.keyboard);
+          await answerCallback(cb.id);
+          return NextResponse.json({ success: true });
+        }
+
+        // lv & ll: "<mealId>:<sisanya>" — Firestore id gak ada ":" jadi aman
+        const sep = rest.indexOf(":");
+        const mealId = sep >= 0 ? rest.slice(0, sep) : rest;
+        const tail = sep >= 0 ? rest.slice(sep + 1) : "";
+        const mealRef = adminDb.collection("meals").doc(mealId);
+        const mealDoc = await mealRef.get();
+        const meal = mealDoc.exists ? ({ id: mealDoc.id, ...mealDoc.data() } as SavedMeal) : null;
+        if (!meal || meal.userId !== owner.id) {
+          await answerCallback(cb.id, "Menu ini udah gak ada di library.");
+          return NextResponse.json({ success: true });
+        }
+
+        // Detail menu + pilih waktu makan
+        if (action === "lv") {
+          const view = favDetailView(meal, tail || "a:0:");
+          await editMessage(chatId, messageId, view.text, view.keyboard);
+          await answerCallback(cb.id);
+          return NextResponse.json({ success: true });
+        }
+
+        // Catat ke entri makan hari ini
+        const mealType = MEAL_CODE[tail] || currentMealWIB();
+        await adminDb.collection("foodEntries").add({
+          userId: owner.id,
+          name: favLabel(meal),
+          kcal: meal.kcal,
+          protein_g: meal.protein_g,
+          carbs_g: meal.carbs_g,
+          fat_g: meal.fat_g,
+          portion: meal.portion || "1 porsi",
+          meal: mealType,
+          source: "chat",
+          ...(meal.items && meal.items.length > 0 && { items: meal.items }),
+          createdAt: new Date().toISOString(),
+        });
+        // useCount buat urutan favorit — gagal pun gak masalah
+        await mealRef.update({ useCount: FieldValue.increment(1) }).catch(() => {});
+
+        let msg = `✅ Tercatat: ${favLabel(meal)} — ${fmtNum(meal.kcal)} kkal\n${MEAL_EMOJI[mealType]} ${MEAL_LABELS[mealType]}`;
+        const sisa = await sisaLine(owner.id);
+        if (sisa) msg += `\n\n${sisa}`;
+        await editMessage(chatId, messageId, msg, {
+          inline_keyboard: [[{ text: "⭐ Catat favorit lain", callback_data: "lp:a:0:" }]],
+        });
+        await answerCallback(cb.id, "Tercatat!");
+        return NextResponse.json({ success: true });
+      }
+
       await answerCallback(cb.id);
       return NextResponse.json({ success: true });
     }
@@ -258,7 +448,7 @@ export async function POST(request: Request) {
           await linkRef.delete();
           await sendMessage(
             chatId,
-            "✅ Terhubung ke akun KaloriKu!\n\nSekarang tinggal:\n• Chat makananmu — \"tadi makan nasi goreng porsi sedang\"\n• Kirim foto makanan / label nutrisi\n• /today — ringkasan hari ini\n• /muat <makanan> — cek muat gak di target"
+            "✅ Terhubung ke akun KaloriKu!\n\nSekarang tinggal:\n• Chat makananmu — \"tadi makan nasi goreng porsi sedang\"\n• Kirim foto makanan / label nutrisi\n• /favorit — buka Meal Library, tap buat catat\n• /today — ringkasan hari ini\n• /muat <makanan> — cek muat gak di target"
           );
         } else {
           await sendMessage(chatId, "❌ Kode gak valid atau kadaluarsa. Ambil kode baru di web: Goals & Setting → Hubungkan Telegram.");
@@ -296,6 +486,23 @@ export async function POST(request: Request) {
         getRecentExercises(userId),
       ]);
       await sendMessage(chatId, formatDailySummary(entries, goals, shiftDateKey(dateKeyWIB(), -1), exercises));
+      return NextResponse.json({ success: true });
+    }
+
+    // /favorit [kata] — buka Meal Library, tap buat catat (tanpa AI). Kata opsional
+    // buat nyaring nama/resto, mis. "/favorit mcd".
+    if (text && /^\/(favorit|fav|library)\b/i.test(text)) {
+      const q = clipBytes(text.replace(/^\/(favorit|fav|library)(@\S+)?\s*/i, "").trim(), 30);
+      const meals = await getFavorites(userId);
+      if (meals.length === 0) {
+        await sendMessage(
+          chatId,
+          "⭐ Meal Library kamu masih kosong.\n\nTambahin dulu di web → Meal Library (menu resto atau masakan sendiri), atau centang \"Simpan ke favorit\" pas nyatet makan."
+        );
+        return NextResponse.json({ success: true });
+      }
+      const view = favListView(meals, "a", 0, q);
+      await sendMessage(chatId, view.text, view.keyboard);
       return NextResponse.json({ success: true });
     }
 
@@ -531,7 +738,7 @@ export async function POST(request: Request) {
 
     await sendMessage(
       chatId,
-      "Ketik, kirim foto, atau voice note 🎙️ apa yang barusan kamu makan. 🍜\n\n/today — ringkasan hari ini\n/muat <makanan> — cek muat gak\n/saran — AI saranin menu\n/air <ml> — catat minum\n/hapus — hapus entri terakhir"
+      "Ketik, kirim foto, atau voice note 🎙️ apa yang barusan kamu makan. 🍜\n\n/favorit — buka Meal Library\n/today — ringkasan hari ini\n/muat <makanan> — cek muat gak\n/saran — AI saranin menu\n/air <ml> — catat minum\n/hapus — hapus entri terakhir"
     );
     return NextResponse.json({ success: true });
   } catch (error) {
