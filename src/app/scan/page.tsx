@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/ui/page-header";
 import { BarcodeScanner } from "@/components/scan/barcode-scanner";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
-import { ExtractedFood } from "@/lib/ai-extract";
+import { aiUrl } from "@/lib/ai-fetch";
+import type { ExtractedFood } from "@/lib/ai-extract";
 import { lookupBarcode } from "@/lib/openfoodfacts";
 import { currentMealWIB } from "@/lib/calculations";
 import { toast } from "sonner";
@@ -86,7 +87,7 @@ export default function ScanPage() {
     setLoading(true);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/scan-food", {
+      const res = await fetch(aiUrl("/api/scan-food"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify(

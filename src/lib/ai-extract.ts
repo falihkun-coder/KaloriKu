@@ -1,6 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MealType, MealItem } from "@/lib/calculations";
-import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
+import { AiUsage } from "@/lib/ai-pricing";
+import { generate, parseModelJson, GroundingSource } from "@/lib/gemini";
 
 export type ExtractedFood = {
   name: string;
@@ -16,14 +16,11 @@ export type ExtractedFood = {
   items?: MealItem[];
   /** Token in/out buat tracking biaya (server yang catat) */
   usage?: AiUsage;
+  /** Halaman web yang dipakai (cuma kalau grounded) — tampilin, jangan disimpan */
+  sources?: GroundingSource[];
+  /** Search Suggestions Google — WAJIB ditampilin bareng hasil grounded */
+  searchSuggestionsHtml?: string;
 };
-
-// Ambil token in/out dari respons Gemini buat tracking biaya.
-export function readUsage(resp: { usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number } }): AiUsage | undefined {
-  const um = resp.usageMetadata;
-  if (!um) return undefined;
-  return { inputTokens: um.promptTokenCount || 0, outputTokens: um.candidatesTokenCount || 0 };
-}
 
 export type ExtractInput = {
   text?: string;
@@ -33,6 +30,8 @@ export type ExtractInput = {
   /** Voice note (mis. Telegram: audio/ogg) — transkrip + estimasi sekaligus */
   audioBase64?: string;
   audioMimeType?: string;
+  /** Cari data gizi resmi lewat Google Search (dipakai buat menu resto) */
+  grounded?: boolean;
 };
 
 function currentMealWIB(): MealType {
@@ -48,23 +47,43 @@ function currentMealWIB(): MealType {
 
 const VALID_MEALS: MealType[] = ["sarapan", "siang", "malam", "snack"];
 
+/** Bentuk mentah jawaban AI sebelum divalidasi. */
+type RawFood = {
+  name?: unknown;
+  kcal?: unknown;
+  protein_g?: unknown;
+  carbs_g?: unknown;
+  fat_g?: unknown;
+  portion?: unknown;
+  meal?: unknown;
+  confidence?: unknown;
+  items?: unknown;
+};
+
 // Satu fungsi extract untuk web /scan, Telegram, dan (nanti) Discord — biar
 // estimasi nutrisi konsisten di semua surface (brief §08).
 export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
   const inputKind = input.imageBase64
     ? "food image (or nutrition label photo)"
     : input.audioBase64
       ? "Indonesian voice note describing what the user ate (transcribe it first, then estimate)"
       : "food description";
 
+  // Grounded: tugas utamanya NYARI data resmi. Kalimat pembuka harus soal nyari — kalau pembukanya
+  // "estimate", model ngerasa cukup jawab dari ingatan dan gak pernah manggil Google Search.
+  const task = input.grounded
+    ? `STEP 1 — Search Google right now for the OFFICIAL nutrition facts of this restaurant menu item, on the restaurant's own Indonesian website or app (e.g. search "site:<brand>.co.id <menu> kalori"). Do not answer from memory: recipes, portions and combo contents change and differ per country. For a combo/paket, find each component.
+    STEP 2 — Report the official numbers. Set confidence ≥ 0.85 if you found official data; if no official source exists (or a macro isn't published), estimate realistically and set confidence ≤ 0.6.`
+    : `Analyze the ${inputKind} and estimate its nutrition.`;
+
+  // Grounded WAJIB ada teks penjelasan sebelum JSON: kalau disuruh "JSON doang", Google gak
+  // ngembaliin sumber & Search Suggestions sama sekali (dites 20 Okt 2026).
+  const outputFormat = input.grounded
+    ? `First write 1–2 short sentences in Indonesian saying what you found and on which site. Then, on the final lines, output one JSON object (no other text after it) with keys:`
+    : `Return ONLY a valid JSON object (no markdown, no backticks) with keys:`;
+
   const prompt = `
-    You are an expert Indonesian nutritionist. Analyze the ${inputKind} and estimate its nutrition.
+    You are an expert Indonesian nutritionist. ${task}
 
     Rules:
     - Common Indonesian foods (nasi goreng, ayam geprek, bakso, etc.): estimate realistic values for the stated portion. Default portion "1 porsi" if unstated.
@@ -75,7 +94,7 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     ${input.caption ? `- USER CONTEXT/CAPTION: "${input.caption}". This is authoritative — the user is clarifying what's in the photo. PRIORITIZE it over what the image alone suggests: use any stated weights/grams (e.g. "nasi 200gr", "ayam 150gr"), quantities, cooking style (goreng/rebus/tanpa kulit), brand, or portion to compute the nutrition. If it names multiple items, include them in the items[] breakdown.` : ""}
     ${input.text ? `- Food description: "${input.text}"` : ""}
 
-    Return ONLY a valid JSON object (no markdown, no backticks) with keys:
+    ${outputFormat}
     name (string, nama makanan singkat dalam bahasa Indonesia),
     kcal (number), protein_g (number), carbs_g (number), fat_g (number),
     portion (string, e.g. "1 porsi", "2 potong", "300 ml"),
@@ -88,27 +107,21 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
       Omit the items array entirely only for a single simple food.)
   `;
 
-  const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [{ text: prompt }];
-  if (input.imageBase64) {
-    parts.push({ inlineData: { data: input.imageBase64, mimeType: input.mimeType || "image/jpeg" } });
-  }
-  if (input.audioBase64) {
-    parts.push({ inlineData: { data: input.audioBase64, mimeType: input.audioMimeType || "audio/ogg" } });
-  }
+  const media: { data: string; mimeType: string }[] = [];
+  if (input.imageBase64) media.push({ data: input.imageBase64, mimeType: input.mimeType || "image/jpeg" });
+  if (input.audioBase64) media.push({ data: input.audioBase64, mimeType: input.audioMimeType || "audio/ogg" });
 
-  const result = await model.generateContent({ contents: [{ role: "user", parts }] });
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const parsed = JSON.parse(cleanJson);
+  const result = await generate({ task: "foodExtract", prompt, media, grounded: input.grounded });
+  const parsed = parseModelJson<RawFood>(result.text);
 
-  const meal: MealType = VALID_MEALS.includes(parsed.meal) ? parsed.meal : currentMealWIB();
+  const meal: MealType = VALID_MEALS.includes(parsed.meal as MealType) ? (parsed.meal as MealType) : currentMealWIB();
 
   // Breakdown per item: total selalu = jumlah item biar angkanya bisa dicek user.
   // Item 0 kkal tetap disimpan (mis. minuman diet/zero, air putih) — asal ada namanya.
   let items: MealItem[] | undefined;
   if (Array.isArray(parsed.items) && parsed.items.length > 1) {
-    items = parsed.items
-      .map((it: { name?: unknown; kcal?: unknown }) => ({
+    items = (parsed.items as { name?: unknown; kcal?: unknown }[])
+      .map((it) => ({
         name: String(it.name ?? "").trim().slice(0, 60),
         kcal: Math.max(0, Math.round(Number(it.kcal) || 0)),
       }))
@@ -130,6 +143,8 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     meal,
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
     ...(items && { items }),
-    usage: readUsage(result.response),
+    usage: result.usage,
+    ...(result.sources.length > 0 && { sources: result.sources }),
+    ...(result.searchSuggestionsHtml && { searchSuggestionsHtml: result.searchSuggestionsHtml }),
   };
 }

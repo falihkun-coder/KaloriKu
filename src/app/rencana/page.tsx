@@ -19,6 +19,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
+import { aiUrl } from "@/lib/ai-fetch";
 import {
   DayKey,
   MealType,
@@ -112,7 +113,7 @@ export default function RencanaPage() {
     setGenerating(true);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/meal-plan", {
+      const res = await fetch(aiUrl("/api/meal-plan"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ preferences: prefs.trim() || undefined }),
@@ -142,7 +143,7 @@ export default function RencanaPage() {
         kcal: dayPlan[m]!.kcal,
       }));
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/meal-plan", {
+      const res = await fetch(aiUrl("/api/meal-plan"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
@@ -240,7 +241,7 @@ export default function RencanaPage() {
     setBusyComp(key);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/meal-plan", {
+      const res = await fetch(aiUrl("/api/meal-plan"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ mode: "split", meal: cur }),
@@ -268,7 +269,7 @@ export default function RencanaPage() {
     setBusyComp(key);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/meal-plan", {
+      const res = await fetch(aiUrl("/api/meal-plan"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
@@ -526,7 +527,7 @@ export default function RencanaPage() {
           className="flex items-center justify-center gap-2 w-full h-11 rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
         >
           {generating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-          {generating ? "AI lagi nyusun menu..." : hasPlan ? "Generate ulang seminggu" : "Generate rencana seminggu"}
+          {generating ? "AI lagi nyusun menu… (bisa 1–2 menit)" : hasPlan ? "Generate ulang seminggu" : "Generate rencana seminggu"}
         </button>
 
         {meals.length === 0 && (

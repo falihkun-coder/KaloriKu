@@ -20,12 +20,13 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { text, imageBase64, mimeType, caption } = body || {};
+    const { text, imageBase64, mimeType, caption, grounded } = body || {};
     if (!text && !imageBase64) {
       return NextResponse.json({ error: "text atau imageBase64 wajib diisi" }, { status: 400 });
     }
 
-    const food = await extractFood({ text, imageBase64, mimeType, caption });
+    // grounded = cari data gizi resmi lewat Google Search (dipakai Meal Library → menu resto)
+    const food = await extractFood({ text, imageBase64, mimeType, caption, grounded: grounded === true });
     await recordAiUsage(uid, food.usage);
     return NextResponse.json({ food });
   } catch (error) {

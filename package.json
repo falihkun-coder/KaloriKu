@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^2.30.0",
     "@zxing/browser": "^0.2.1",
     "@zxing/library": "^0.23.0",
     "class-variance-authority": "^0.7.1",

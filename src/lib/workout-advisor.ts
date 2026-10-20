@@ -1,6 +1,5 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
-import { readUsage } from "@/lib/ai-extract";
+import { AiUsage } from "@/lib/ai-pricing";
+import { generate, parseModelJson } from "@/lib/gemini";
 
 /** Satu gerakan alternatif buat panduan latihan. */
 export type WorkoutAlt = {
@@ -22,12 +21,6 @@ export async function suggestWorkoutAlternatives(input: {
   reason: string;
   target?: string;
 }): Promise<{ alternatives: WorkoutAlt[]; usage?: AiUsage }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
   const target = input.target?.trim();
   const prompt = `
     You are an Indonesian calisthenics & strength coach. The user is on a fat-loss cut
@@ -54,10 +47,8 @@ export async function suggestWorkoutAlternatives(input: {
        "reason": string (1 kalimat kenapa cocok sama konteks user) }]
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const parsed = JSON.parse(cleanJson);
+  const result = await generate({ task: "workout", prompt });
+  const parsed = parseModelJson<Record<string, unknown>[]>(result.text);
   if (!Array.isArray(parsed)) throw new Error("workout-advisor: unexpected response shape");
 
   const alternatives: WorkoutAlt[] = parsed.slice(0, 3).map((a) => ({
@@ -67,5 +58,5 @@ export async function suggestWorkoutAlternatives(input: {
     setsReps: String(a.setsReps || "").slice(0, 40),
     reason: String(a.reason || "").slice(0, 200),
   }));
-  return { alternatives, usage: readUsage(result.response) };
+  return { alternatives, usage: result.usage };
 }

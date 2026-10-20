@@ -1,7 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Goals, MacroTotals, remaining, fmtNum } from "@/lib/calculations";
-import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
-import { readUsage } from "@/lib/ai-extract";
+import { AiUsage } from "@/lib/ai-pricing";
+import { generate, parseModelJson } from "@/lib/gemini";
 
 export type MealSuggestion = {
   name: string;
@@ -19,12 +18,7 @@ export async function suggestMeals(
   consumedToday: MacroTotals,
   burned = 0
 ): Promise<{ suggestions: MealSuggestion[]; usage?: AiUsage }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
   const r = remaining(goals, consumedToday, burned);
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const prompt = `
     You are a friendly Indonesian nutritionist. The user has these targets LEFT for today:
@@ -42,10 +36,8 @@ export async function suggestMeals(
     [{ "name": string, "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number, "reason": string }]
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const parsed = JSON.parse(cleanJson);
+  const result = await generate({ task: "advisor", prompt });
+  const parsed = parseModelJson<Record<string, unknown>[]>(result.text);
   if (!Array.isArray(parsed)) throw new Error("advisor: unexpected response shape");
 
   const suggestions = parsed.slice(0, 3).map((s) => ({
@@ -56,7 +48,7 @@ export async function suggestMeals(
     fat_g: Math.max(0, Math.round((Number(s.fat_g) || 0) * 10) / 10),
     reason: String(s.reason || "").slice(0, 160),
   }));
-  return { suggestions, usage: readUsage(result.response) };
+  return { suggestions, usage: result.usage };
 }
 
 // Balasan Telegram-ready untuk /saran.

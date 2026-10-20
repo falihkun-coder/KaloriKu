@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Sparkles, Loader2, Plus } from "lucide-react";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
+import { aiUrl } from "@/lib/ai-fetch";
 import { MealSuggestion } from "@/lib/advisor";
 import { fmtNum } from "@/lib/calculations";
 import { toast } from "sonner";
@@ -17,7 +18,7 @@ export function AdvisorCard() {
     setLoading(true);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/advisor", {
+      const res = await fetch(aiUrl("/api/advisor"), {
         method: "POST",
         headers: { Authorization: `Bearer ${idToken}` },
       });

@@ -1,7 +1,6 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ExerciseType } from "@/lib/calculations";
-import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
-import { readUsage } from "@/lib/ai-extract";
+import { AiUsage } from "@/lib/ai-pricing";
+import { generate, parseModelJson } from "@/lib/gemini";
 
 export type ExtractedExercise = {
   name: string;
@@ -17,12 +16,6 @@ const VALID_TYPES: ExerciseType[] = ["kardio", "beban", "hiit", "jalan", "lainny
 // Estimasi kalori terbakar dari deskripsi olahraga — shared web & bot.
 // Berat badan (kalau ada di weights terakhir) bikin estimasi lebih akurat.
 export async function estimateExercise(text: string, weightKg?: number): Promise<ExtractedExercise> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
-
   const prompt = `
     You are a fitness coach. Estimate calories burned for this Indonesian workout description: "${text}".
     ${weightKg ? `The person weighs about ${weightKg} kg — use it for a realistic estimate.` : "Assume ~70 kg if weight is unknown."}
@@ -40,18 +33,22 @@ export async function estimateExercise(text: string, weightKg?: number): Promise
     confidence (number 0-1).
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const parsed = JSON.parse(cleanJson);
+  const result = await generate({ task: "exercise", prompt });
+  const parsed = parseModelJson<{
+    name?: unknown;
+    type?: unknown;
+    durationMin?: unknown;
+    kcalBurned?: unknown;
+    confidence?: unknown;
+  }>(result.text);
 
-  const type: ExerciseType = VALID_TYPES.includes(parsed.type) ? parsed.type : "lainnya";
+  const type: ExerciseType = VALID_TYPES.includes(parsed.type as ExerciseType) ? (parsed.type as ExerciseType) : "lainnya";
   return {
     name: String(parsed.name || "Olahraga").slice(0, 80),
     type,
     durationMin: Math.max(0, Math.round(Number(parsed.durationMin) || 0)),
     kcalBurned: Math.max(0, Math.round(Number(parsed.kcalBurned) || 0)),
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),
-    usage: readUsage(result.response),
+    usage: result.usage,
   };
 }

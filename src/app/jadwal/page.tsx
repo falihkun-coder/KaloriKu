@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CalendarDays, Dumbbell, Target, Zap, TrendingUp, Repeat, Footprints, Check, Pencil, X, Sparkles, Loader2, Shuffle } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { auth } from "@/lib/firebase";
+import { aiUrl } from "@/lib/ai-fetch";
 import type { WorkoutAlt } from "@/lib/workout-advisor";
 import { useStore } from "@/store/useStore";
 import {
@@ -110,7 +111,7 @@ export default function JadwalPage() {
     setAlts(null);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/workout-alt", {
+      const res = await fetch(aiUrl("/api/workout-alt"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ reason: altReason.trim(), target: altTarget || undefined }),

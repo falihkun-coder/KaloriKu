@@ -37,6 +37,26 @@ export type AiUsageStats = {
   totalRequests: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalThinkingTokens: number;
+  /** Biaya persis yang dicatat per request (USD) */
+  totalCostUsd: number;
+  /** Token yang biayanya udah masuk totalCostUsd — sisanya data lama, diestimasi */
+  costedInputTokens: number;
+  costedOutputTokens: number;
+  /** Jumlah request grounded per bulan ("2026-10" → n) buat pantau kuota gratis */
+  groundedByMonth: Record<string, number>;
+  lastModel?: string;
+};
+
+export const EMPTY_AI_USAGE: AiUsageStats = {
+  totalRequests: 0,
+  totalInputTokens: 0,
+  totalOutputTokens: 0,
+  totalThinkingTokens: 0,
+  totalCostUsd: 0,
+  costedInputTokens: 0,
+  costedOutputTokens: 0,
+  groundedByMonth: {},
 };
 
 export type Playlist = {
@@ -136,7 +156,7 @@ export const useStore = create<AppState>((set, get) => ({
   playlists: [],
   schedule: DEFAULT_WORKOUT_SCHEDULE,
   mealPlan: EMPTY_MEAL_PLAN,
-  aiUsage: { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 },
+  aiUsage: EMPTY_AI_USAGE,
   profile: {},
   isLoading: false,
 
@@ -235,13 +255,20 @@ export const useStore = create<AppState>((set, get) => ({
       }
       await setDoc(userDocRef, profile, { merge: true });
 
-      const aiUsage: AiUsageStats = aiUsageDocSnap.exists()
+      const u = aiUsageDocSnap.exists() ? aiUsageDocSnap.data() : null;
+      const aiUsage: AiUsageStats = u
         ? {
-            totalRequests: (aiUsageDocSnap.data().totalRequests as number) || 0,
-            totalInputTokens: (aiUsageDocSnap.data().totalInputTokens as number) || 0,
-            totalOutputTokens: (aiUsageDocSnap.data().totalOutputTokens as number) || 0,
+            totalRequests: (u.totalRequests as number) || 0,
+            totalInputTokens: (u.totalInputTokens as number) || 0,
+            totalOutputTokens: (u.totalOutputTokens as number) || 0,
+            totalThinkingTokens: (u.totalThinkingTokens as number) || 0,
+            totalCostUsd: (u.totalCostUsd as number) || 0,
+            costedInputTokens: (u.costedInputTokens as number) || 0,
+            costedOutputTokens: (u.costedOutputTokens as number) || 0,
+            groundedByMonth: (u.groundedByMonth as Record<string, number>) || {},
+            lastModel: u.lastModel as string | undefined,
           }
-        : { totalRequests: 0, totalInputTokens: 0, totalOutputTokens: 0 };
+        : EMPTY_AI_USAGE;
 
       // Jadwal olahraga: merge default (biar hari yang belum diisi tetap ada) dgn data user
       let schedule: WorkoutSchedule = { ...DEFAULT_WORKOUT_SCHEDULE, userId: currentUid };

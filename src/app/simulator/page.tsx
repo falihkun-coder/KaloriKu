@@ -5,9 +5,10 @@ import { Calculator, Loader2, Sparkles } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { useStore } from "@/store/useStore";
 import { auth } from "@/lib/firebase";
+import { aiUrl } from "@/lib/ai-fetch";
 import { consumedToday, budgetBurned, fmtNum } from "@/lib/calculations";
 import { simulateFit, FitResult } from "@/lib/simulate-fit";
-import { ExtractedFood } from "@/lib/ai-extract";
+import type { ExtractedFood } from "@/lib/ai-extract";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -38,7 +39,7 @@ export default function SimulatorPage() {
     setResult(null);
     try {
       const idToken = await auth.currentUser?.getIdToken();
-      const res = await fetch("/api/scan-food", {
+      const res = await fetch(aiUrl("/api/scan-food"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({ text: query.trim() }),

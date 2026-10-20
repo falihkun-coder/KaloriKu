@@ -6,6 +6,7 @@ import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { useStore } from "@/store/useStore";
 import { ExerciseType, EXERCISE_ORDER, EXERCISE_LABELS } from "@/lib/calculations";
 import { auth } from "@/lib/firebase";
+import { aiUrl } from "@/lib/ai-fetch";
 import { ExtractedExercise } from "@/lib/exercise-extract";
 import { toast } from "sonner";
 import { Trash2, X, Sparkles, Loader2 } from "lucide-react";
@@ -109,7 +110,7 @@ export function ExerciseDialog() {
     try {
       const idToken = await auth.currentUser?.getIdToken();
       const latestWeight = weights.length > 0 ? weights[weights.length - 1].kg : undefined;
-      const res = await fetch("/api/scan-exercise", {
+      const res = await fetch(aiUrl("/api/scan-exercise"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({

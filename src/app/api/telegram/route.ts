@@ -283,6 +283,21 @@ export async function POST(request: Request) {
   try {
     const update = await request.json();
 
+    // Anti-dobel: Telegram ngirim ulang update yang sama kalau balasan kita telat/gagal — dan
+    // Gemini 4 Argon bisa makan waktu lama. Klaim update_id dulu; kalau udah pernah, skip.
+    if (typeof update.update_id === "number") {
+      try {
+        await adminDb
+          .collection("telegramUpdates")
+          .doc(String(update.update_id))
+          .create({ at: new Date().toISOString() });
+      } catch (e) {
+        // 6 = ALREADY_EXISTS → update ini udah diproses. Error lain: tetap proses (fail-open).
+        if ((e as { code?: number }).code === 6) return NextResponse.json({ success: true, duplicate: true });
+        console.error("telegram dedupe check failed (lanjut proses):", e);
+      }
+    }
+
     // ===== Tombol Simpan / Batal =====
     if (update.callback_query) {
       const cb = update.callback_query;

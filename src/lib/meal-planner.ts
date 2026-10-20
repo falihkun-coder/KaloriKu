@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import {
   Goals,
   SavedMeal,
@@ -13,8 +12,8 @@ import {
   mealLabel,
   sumPlannedItems,
 } from "@/lib/calculations";
-import { AiUsage, GEMINI_MODEL } from "@/lib/ai-pricing";
-import { readUsage } from "@/lib/ai-extract";
+import { AiUsage } from "@/lib/ai-pricing";
+import { generate, parseModelJson } from "@/lib/gemini";
 
 const VALID_MEALS = new Set<string>(MEAL_ORDER);
 const VALID_DAYS = new Set<string>(WEEKDAY_ORDER);
@@ -109,11 +108,6 @@ export async function generateWeeklyPlan(input: {
   preferences?: string;
   dislikes?: string[];
 }): Promise<{ days: MealPlan["days"]; usage?: AiUsage }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const prompt = `
     Kamu ahli gizi Indonesia. Susun RENCANA MAKAN 7 HARI (Senin–Minggu) buat user yang lagi cutting.
@@ -150,10 +144,8 @@ export async function generateWeeklyPlan(input: {
     Kunci hari HARUS: sen, sel, rab, kam, jum, sab, min. Ringkas — jangan tambah field lain.
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const parsed = JSON.parse(cleanJson) as Record<string, unknown>;
+  const result = await generate({ task: "mealPlan", prompt });
+  const parsed = parseModelJson<Record<string, unknown>>(result.text);
 
   const days = { sen: {}, sel: {}, rab: {}, kam: {}, jum: {}, sab: {}, min: {} } as MealPlan["days"];
   for (const [dayKey, dayVal] of Object.entries(parsed)) {
@@ -165,7 +157,7 @@ export async function generateWeeklyPlan(input: {
     }
   }
 
-  return { days, usage: readUsage(result.response) };
+  return { days, usage: result.usage };
 }
 
 /** Ganti 1 slot doang (tombol "ganti" — biar gak perlu regenerate seminggu). */
@@ -179,11 +171,6 @@ export async function generateSingleSlot(input: {
   preferences?: string;
   dislikes?: string[];
 }): Promise<{ planned: PlannedMeal | null; usage?: AiUsage }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const others = (input.otherMealsToday || []).map((o) => `- ${o.meal}: ${o.name} (${o.kcal} kkal)`).join("\n");
   const sisaKcal =
@@ -208,12 +195,10 @@ export async function generateSingleSlot(input: {
     { "name": string, "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number, "portion": string, "reason": string, "items": [${ITEM_SHAPE}] }
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const planned = cleanPlanned(JSON.parse(cleanJson), input.library);
+  const result = await generate({ task: "mealPlan", prompt });
+  const planned = cleanPlanned(parseModelJson(result.text), input.library);
 
-  return { planned, usage: readUsage(result.response) };
+  return { planned, usage: result.usage };
 }
 
 /**
@@ -229,11 +214,6 @@ export async function generateComponentSwap(input: {
   dislikes?: string[];
   preferences?: string;
 }): Promise<{ item: PlannedItem | null; usage?: AiUsage }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
   const target = input.components[input.targetIndex];
   if (!target) return { item: null };
@@ -264,21 +244,14 @@ export async function generateComponentSwap(input: {
     ${ITEM_SHAPE}
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  return { item: cleanItem(JSON.parse(cleanJson)), usage: readUsage(result.response) };
+  const result = await generate({ task: "mealPlan", prompt });
+  return { item: cleanItem(parseModelJson(result.text)), usage: result.usage };
 }
 
 /** Pecah menu lama (yang belum punya komponen) jadi komponen-komponen. */
 export async function splitIntoComponents(input: {
   meal: PlannedMeal;
 }): Promise<{ items: PlannedItem[] | null; usage?: AiUsage }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
   const m = input.meal;
 
   const prompt = `
@@ -295,12 +268,10 @@ export async function splitIntoComponents(input: {
     Balas HANYA JSON valid (tanpa markdown/backtick): array of ${ITEM_SHAPE}
   `;
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-  const cleanJson = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-  const parsed = JSON.parse(cleanJson);
+  const result = await generate({ task: "mealPlan", prompt });
+  const parsed = parseModelJson(result.text);
   const items = Array.isArray(parsed)
     ? parsed.map(cleanItem).filter((x): x is PlannedItem => !!x).slice(0, 8)
     : null;
-  return { items: items && items.length > 0 ? items : null, usage: readUsage(result.response) };
+  return { items: items && items.length > 0 ? items : null, usage: result.usage };
 }

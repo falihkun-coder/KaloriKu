@@ -14,8 +14,9 @@ import {
   guessMealCategory,
   fmtNum,
 } from "@/lib/calculations";
-import { ExtractedFood } from "@/lib/ai-extract";
+import type { ExtractedFood } from "@/lib/ai-extract";
 import { auth } from "@/lib/firebase";
+import { aiUrl } from "@/lib/ai-fetch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -36,6 +37,9 @@ type RestoDraft = {
   portion: string;
   confidence: number;
   items?: MealItem[];
+  /** Dari Google Search (menu resto) — cuma ditampilin di preview, gak ikut disimpan */
+  sources?: ExtractedFood["sources"];
+  searchSuggestionsHtml?: string;
 };
 
 type CatFilter = "semua" | MealCategory;
@@ -115,10 +119,11 @@ export default function LibraryPage() {
         addMode === "resto"
           ? `Menu "${menuName.trim()}" dari restoran/warung "${restoName.trim()}" — 1 porsi standar menu resto tersebut. Kalau kamu tahu menu resto ini (mis. chain besar), pakai data resminya.`
           : `Masakan/menu buatan sendiri "${menuName.trim()}" dengan bahan-bahan berikut:\n${ingredients.trim()}\n\nHitung nutrisi TOTAL dari komposisi bahan di atas (ini masakan rumahan, BUKAN menu resto). Kalau ada takaran (gram/ml/sdm/butir/potong), pakai persis takaran itu. Kasih breakdown per bahan/komponen di items[].`;
-      const res = await fetch("/api/scan-food", {
+      const res = await fetch(aiUrl("/api/scan-food"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ text }),
+        // Menu resto → cari data gizi resmi lewat Google Search
+        body: JSON.stringify({ text, grounded: addMode === "resto" }),
       });
       if (!res.ok) throw new Error(`scan failed: ${res.status}`);
       const { food } = (await res.json()) as { food: ExtractedFood };
@@ -133,6 +138,8 @@ export default function LibraryPage() {
         portion: food.portion || "1 porsi",
         confidence: food.confidence,
         items: food.items,
+        sources: food.sources,
+        searchSuggestionsHtml: food.searchSuggestionsHtml,
       });
     } catch (err) {
       console.error(err);
@@ -207,11 +214,13 @@ export default function LibraryPage() {
     try {
       const idToken = await auth.currentUser?.getIdToken();
       const isiPaket = items.map((it) => `- ${it.name.trim()}`).join("\n");
-      const res = await fetch("/api/scan-food", {
+      const res = await fetch(aiUrl("/api/scan-food"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           text: `Paket "${draft.name}"${draft.restaurant ? ` dari "${draft.restaurant}"` : ""} yang isinya persis seperti ini:\n${isiPaket}\n\nHitung ULANG kalori tiap item sesuai isi di atas, plus total protein/karbo/lemak buat kombinasi ini. Sertakan SEMUA item di atas di breakdown, termasuk yang 0 kalori (mis. minuman diet/zero). Kembalikan breakdown per item.`,
+          // menu resto → komponen paketnya juga dicari data resminya
+          grounded: !!draft.restaurant.trim(),
         }),
       });
       if (!res.ok) throw new Error(`reanalyze failed: ${res.status}`);
@@ -228,6 +237,8 @@ export default function LibraryPage() {
               confidence: food.confidence,
               // pakai breakdown baru kalau ada; kalau tinggal 1 item, breakdown ilang
               items: food.items && food.items.length > 0 ? food.items : undefined,
+              sources: food.sources,
+              searchSuggestionsHtml: food.searchSuggestionsHtml,
             }
           : d
       );
@@ -396,7 +407,7 @@ export default function LibraryPage() {
             className="flex items-center justify-center gap-2 w-full sm:w-auto px-4 h-[42px] rounded-[12px] bg-primary text-primary-foreground text-[13px] font-semibold shadow-[0_8px_18px_var(--accent-shadow)] transition-transform active:scale-[0.98] disabled:opacity-60"
           >
             {searching ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-            {searching ? "Nyari..." : addMode === "resto" ? "Cari nutrisi" : "Hitung dari bahan"}
+            {searching ? (addMode === "resto" ? "Nyari ke Google…" : "Ngitung…") : addMode === "resto" ? "Cari nutrisi" : "Hitung dari bahan"}
           </button>
         </form>
 
@@ -432,7 +443,8 @@ export default function LibraryPage() {
                   </span>
                 </p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
-                  ✨ Estimasi AI (yakin {Math.round(draft.confidence * 100)}%) · {draft.portion} — koreksi angkanya kalau perlu
+                  {draft.sources && draft.sources.length > 0 ? "🔎 Dicek ke Google" : "✨ Estimasi AI"} (yakin{" "}
+                  {Math.round(draft.confidence * 100)}%) · {draft.portion} — koreksi angkanya kalau perlu
                 </p>
               </div>
               <button
@@ -443,6 +455,36 @@ export default function LibraryPage() {
                 <X size={14} />
               </button>
             </div>
+
+            {/* Sumber Google Search. Aturan Gemini API: hasil grounded WAJIB ditampilin bareng
+                Search Suggestions-nya, link gak boleh diubah, dan gak boleh disimpan — makanya
+                cuma ada di preview ini, gak ikut kesimpen ke library. */}
+            {((draft.sources && draft.sources.length > 0) || draft.searchSuggestionsHtml) && (
+              <div className="rounded-[12px] bg-card border border-border px-3.5 py-3 space-y-2">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  Sumber yang dipakai AI
+                </p>
+                {draft.sources && draft.sources.length > 0 && (
+                  <ul className="space-y-1">
+                    {draft.sources.slice(0, 5).map((s) => (
+                      <li key={s.uri} className="text-[12px] truncate">
+                        <a href={s.uri} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                          {s.title}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {draft.searchSuggestionsHtml && (
+                  <iframe
+                    title="Saran pencarian Google"
+                    srcDoc={`<base target="_blank">${draft.searchSuggestionsHtml}`}
+                    sandbox="allow-popups allow-popups-to-escape-sandbox"
+                    className="w-full h-[64px] border-0 rounded-[8px]"
+                  />
+                )}
+              </div>
+            )}
 
             {/* Kategori — biar gampang difilter nanti */}
             <div className="flex flex-wrap gap-2">
