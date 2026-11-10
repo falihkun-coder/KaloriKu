@@ -83,6 +83,23 @@ export async function generate(opts: {
 }
 
 /**
+ * Kalau gagalnya dari sisi layanan AI (saldo habis / kena kuota), balikin pesan yang jelas buat user —
+ * biar gak disangka fotonya yang salah. null = error biasa, pakai pesan fallback masing-masing.
+ */
+export function aiServiceProblem(e: unknown): string | null {
+  const status = (e as { status?: unknown } | null)?.status;
+  const msg = e instanceof Error ? e.message : String(e);
+  // 402 dicek duluan: statusnya juga "RESOURCE_EXHAUSTED", tapi artinya saldo prabayar habis.
+  if (status === 402 || /prepayment credits are depleted/i.test(msg)) {
+    return "⚠️ Saldo AI (Gemini) lagi habis, jadi scan & hitung otomatis belum bisa. Top up dulu di AI Studio → Billing: https://ai.studio/projects\n\nSementara itu masih bisa /favorit atau catat manual di web.";
+  }
+  if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(msg)) {
+    return "⏳ AI lagi kena batas pemakaian. Coba lagi beberapa menit lagi ya.";
+  }
+  return null;
+}
+
+/**
  * Ambil JSON dari jawaban model. Tahan sama code fence dan teks penjelasan sebelum JSON
  * (jawaban grounded selalu begitu — dan teksnya bisa ngandung "[...]" penanda sumber).
  */

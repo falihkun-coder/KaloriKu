@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase-admin";
 import { extractFood, ExtractedFood } from "@/lib/ai-extract";
+import { aiServiceProblem } from "@/lib/gemini";
 import { formatDailySummary } from "@/lib/calorie-summary";
 import { simulateFit, formatFit } from "@/lib/simulate-fit";
 import { suggestMeals, formatSuggestions } from "@/lib/advisor";
@@ -561,7 +562,7 @@ export async function POST(request: Request) {
         await editMessage(chatId, procMsg?.result?.message_id, msg);
       } catch (e) {
         console.error("olahraga error:", e);
-        await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal ngitung. Coba: /olahraga gym 1 jam");
+        await editMessage(chatId, procMsg?.result?.message_id, aiServiceProblem(e) ?? "❌ Gagal ngitung. Coba: /olahraga gym 1 jam");
       }
       return NextResponse.json({ success: true });
     }
@@ -632,7 +633,7 @@ export async function POST(request: Request) {
         await editMessage(chatId, procMsg?.result?.message_id, formatSuggestions(suggestions, goals.kcalTarget + burned - consumed.kcal));
       } catch (e) {
         console.error("saran error:", e);
-        await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal bikin saran, coba lagi bentar.");
+        await editMessage(chatId, procMsg?.result?.message_id, aiServiceProblem(e) ?? "❌ Gagal bikin saran, coba lagi bentar.");
       }
       return NextResponse.json({ success: true });
     }
@@ -657,7 +658,7 @@ export async function POST(request: Request) {
         await editMessage(chatId, procMsg?.result?.message_id, formatFit(result));
       } catch (e) {
         console.error("muat error:", e);
-        await editMessage(chatId, procMsg?.result?.message_id, "❌ Gagal ngitung. Coba: /muat nasi padang rendang");
+        await editMessage(chatId, procMsg?.result?.message_id, aiServiceProblem(e) ?? "❌ Gagal ngitung. Coba: /muat nasi padang rendang");
       }
       return NextResponse.json({ success: true });
     }
@@ -685,7 +686,7 @@ export async function POST(request: Request) {
         await sendConfirm(chatId, userId, food, "chat", procMsgId);
       } catch (e) {
         console.error("voice error:", e);
-        await editMessage(chatId, procMsgId, "❌ Gagal proses voice note. Coba ketik aja: \"nasi goreng porsi sedang\"");
+        await editMessage(chatId, procMsgId, aiServiceProblem(e) ?? "❌ Gagal proses voice note. Coba ketik aja: \"nasi goreng porsi sedang\"");
       }
       return NextResponse.json({ success: true });
     }
@@ -707,7 +708,7 @@ export async function POST(request: Request) {
         await sendConfirm(chatId, userId, food, "scan", procMsgId);
       } catch (e) {
         console.error("photo error:", e);
-        await editMessage(chatId, procMsgId, "❌ Gagal baca foto. Pastiin makanannya keliatan jelas, atau ketik aja: \"nasi goreng porsi sedang\"");
+        await editMessage(chatId, procMsgId, aiServiceProblem(e) ?? "❌ Gagal baca foto. Pastiin makanannya keliatan jelas, atau ketik aja: \"nasi goreng porsi sedang\"");
       }
       return NextResponse.json({ success: true });
     }
@@ -746,7 +747,7 @@ export async function POST(request: Request) {
         await sendConfirm(chatId, userId, food, "chat", procMsgId);
       } catch (e) {
         console.error("text error:", e);
-        await editMessage(chatId, procMsgId, "❌ Gagal proses. Coba sebut makanan + porsinya, misal: \"ayam geprek + nasi, porsi sedang\"");
+        await editMessage(chatId, procMsgId, aiServiceProblem(e) ?? "❌ Gagal proses. Coba sebut makanan + porsinya, misal: \"ayam geprek + nasi, porsi sedang\"");
       }
       return NextResponse.json({ success: true });
     }
