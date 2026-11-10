@@ -19,6 +19,7 @@ import { auth } from "@/lib/firebase";
 import { aiUrl } from "@/lib/ai-fetch";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { LeftoverList } from "@/components/food/leftover-list";
 
 const CATEGORY_EMOJI: Record<MealCategory, string> = {
   makanan: "🍽️",
@@ -57,7 +58,10 @@ type EditDraft = {
 };
 
 export default function LibraryPage() {
-  const meals = useStore((state) => state.meals);
+  const allMeals = useStore((state) => state.meals);
+  // Sisa makanan punya seksi sendiri — gak ikut daftar/filter favorit
+  const meals = useMemo(() => allMeals.filter((m) => !m.leftover), [allMeals]);
+  const leftovers = useMemo(() => allMeals.filter((m) => m.leftover), [allMeals]);
   const logMeal = useStore((state) => state.logMeal);
   const deleteMeal = useStore((state) => state.deleteMeal);
   const updateMeal = useStore((state) => state.updateMeal);
@@ -189,7 +193,19 @@ export default function LibraryPage() {
 
   const updateDraftItem = (i: number, patch: Partial<MealItem>) => {
     if (!draft?.items) return;
-    setDraftItems(draft.items.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+    setDraftItems(
+      draft.items.map((it, idx) => {
+        if (idx !== i) return it;
+        const next = { ...it, ...patch };
+        // Kalori diubah manual → makro per item dari AI udah gak cocok; buang biar nanti diperkirakan ulang
+        if (patch.kcal != null && patch.kcal !== it.kcal) {
+          delete next.protein_g;
+          delete next.carbs_g;
+          delete next.fat_g;
+        }
+        return next;
+      })
+    );
   };
 
   const removeDraftItem = (i: number) => {
@@ -615,6 +631,17 @@ export default function LibraryPage() {
           </div>
         )}
       </div>
+
+      {/* Sisa makanan — bagian paket yang gak kemakan, tinggal 1-tap catat pas dimakan */}
+      {leftovers.length > 0 && (
+        <div className="rounded-[22px] border border-border bg-card p-5 md:p-6">
+          <p className="font-heading font-bold tracking-tight text-[15px]">🥡 Sisa makanan</p>
+          <p className="text-[12px] text-muted-foreground mt-0.5">
+            Bagian yang belum kemakan. Catat pas kamu makan; ilang sendiri abis dicatat.
+          </p>
+          <LeftoverList leftovers={leftovers} />
+        </div>
+      )}
 
       {meals.length === 0 ? (
         <div className="rounded-[22px] border border-border bg-card flex flex-col items-center justify-center text-center py-14 px-6">

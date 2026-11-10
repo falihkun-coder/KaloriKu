@@ -130,6 +130,8 @@ interface AppState {
   addWater: (ml: number) => Promise<void>;
   /** Simpan makanan ke library favorit (skip kalau nama sudah ada). */
   addMeal: (meal: Omit<SavedMeal, "id" | "useCount">) => Promise<void>;
+  /** Simpan sisa makanan (gak di-dedupe kayak favorit) — balikin id-nya. */
+  addLeftover: (meal: Omit<SavedMeal, "id" | "useCount" | "userId">) => Promise<string>;
   /** Edit favorit yang udah tersimpan (nama, resto, kategori, kalori, makro). */
   updateMeal: (id: string, patch: Partial<Omit<SavedMeal, "id" | "userId">>) => Promise<void>;
   deleteMeal: (id: string) => Promise<void>;
@@ -581,6 +583,15 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  addLeftover: async (meal) => {
+    const state = get();
+    if (!state.userId) throw new Error("User not authenticated");
+    const newMeal = { ...meal, leftover: true, userId: state.userId, useCount: 0 };
+    const docRef = await addDoc(collection(db, "meals"), newMeal);
+    set({ meals: [...get().meals, { id: docRef.id, ...newMeal } as SavedMeal] });
+    return docRef.id;
+  },
+
   updateMeal: async (id, patch) => {
     const state = get();
     const prev = state.meals.find((m) => m.id === id);
@@ -630,6 +641,15 @@ export const useStore = create<AppState>((set, get) => ({
       ...(meal.items && meal.items.length > 0 && { items: meal.items }),
       createdAt: new Date().toISOString(),
     });
+    // Sisa makanan cuma sekali pakai — begitu dicatat, hapus dari daftar sisa.
+    if (meal.leftover) {
+      try {
+        await get().deleteMeal(meal.id);
+      } catch {
+        /* entrinya udah kecatat; sisa bisa dihapus manual */
+      }
+      return;
+    }
     // useCount buat urutan chips favorit — gagal pun gak masalah
     try {
       const newCount = (meal.useCount || 0) + 1;

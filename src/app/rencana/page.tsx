@@ -62,7 +62,8 @@ type SlotEdit = {
 export default function RencanaPage() {
   const mealPlan = useStore((s) => s.mealPlan);
   const goals = useStore((s) => s.goals);
-  const meals = useStore((s) => s.meals);
+  // sisa makanan bukan pilihan menu rencana
+  const meals = useStore((s) => s.meals).filter((m) => !m.leftover);
   const saveMealPlan = useStore((s) => s.saveMealPlan);
   const setPlanSlot = useStore((s) => s.setPlanSlot);
   const setDislikes = useStore((s) => s.setDislikes);

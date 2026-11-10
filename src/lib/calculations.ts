@@ -7,7 +7,14 @@ export type EntrySource = "manual" | "chat" | "scan";
 /** Komponen paket/combo (mis. "2 ayam goreng" 480 kkal) — bukti referensi AI. */
 export type MealItem = {
   name: string;
+  /** Kalori item UTUH (sebelum dikali porsi yang dimakan) */
   kcal: number;
+  /** Makro per item (kalau ada) — biar akurat pas cuma dimakan sebagian */
+  protein_g?: number;
+  carbs_g?: number;
+  fat_g?: number;
+  /** Porsi yang beneran dimakan, 0–1. Kosong = dimakan semua. Cuma dipakai di entri makan. */
+  eaten?: number;
 };
 
 export type FoodEntry = {
@@ -25,8 +32,127 @@ export type FoodEntry = {
   photoUrl?: string;
   /** Breakdown per item kalau ini paket/combo */
   items?: MealItem[];
+  /** Sisa makanan (SavedMeal leftover) yang dibikin dari entri ini, kalau ada */
+  leftoverMealId?: string;
   createdAt: string; // ISO string
 };
+
+// ===== Makan sebagian dari paket (mis. PaNas 2 tapi ayamnya dimakan 1) =====
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/** Jumlah buah di depan nama item ("2 potong ayam" → 2). null kalau gak ada atau cuma 1. */
+export function itemCount(name: string): number | null {
+  // (?!\d) biar "150g" gak mundur jadi "15"; satuan berat/volume bukan jumlah buah.
+  const m = name.trim().match(/^(\d+)(?!\d)(?!\s*(?:g|gr|gram|ml|kg|l)\b)/i);
+  const n = m ? parseInt(m[1], 10) : NaN;
+  return Number.isFinite(n) && n >= 2 && n <= 20 ? n : null;
+}
+
+export function fractionLabel(f: number): string {
+  for (const [v, label] of [
+    [0.25, "¼"],
+    [0.5, "½"],
+    [0.75, "¾"],
+  ] as const) {
+    if (Math.abs(f - v) < 0.01) return label;
+  }
+  return `${Math.round(f * 100)}%`;
+}
+
+/** Nama item buat sebagian porsi: "2 potong ayam" × ½ → "1 potong ayam", "Nasi" × ½ → "½ Nasi". */
+export function portionName(name: string, fraction: number): string {
+  if (fraction >= 0.999) return name;
+  const n = itemCount(name);
+  if (n) return name.trim().replace(/^\d+/, String(Math.round(n * fraction)));
+  // "1 porsi Nasi" × ½ → "½ porsi Nasi" (bukan "½ 1 porsi Nasi")
+  if (/^1(?!\d)\s+/.test(name.trim())) return name.trim().replace(/^1/, fractionLabel(fraction));
+  return `${fractionLabel(fraction)} ${name}`;
+}
+
+/**
+ * Pastikan tiap item punya makro sendiri. Item yang belum punya dapet bagian makro total
+ * (sisa setelah item yang udah punya) sesuai porsi kalorinya — perkiraan, tapi cukup buat
+ * ngitung ulang pas sebagian item gak dimakan. `estimated` = ada yang diperkirakan.
+ */
+export function withItemMacros(items: MealItem[], totals: MacroTotals): { items: MealItem[]; estimated: boolean } {
+  const has = (it: MealItem) => it.protein_g != null && it.carbs_g != null && it.fat_g != null;
+  const missing = items.filter((it) => !has(it));
+  if (missing.length === 0) return { items, estimated: false };
+
+  const known = items.filter(has);
+  const rest = {
+    protein_g: Math.max(0, totals.protein_g - known.reduce((s, it) => s + (it.protein_g || 0), 0)),
+    carbs_g: Math.max(0, totals.carbs_g - known.reduce((s, it) => s + (it.carbs_g || 0), 0)),
+    fat_g: Math.max(0, totals.fat_g - known.reduce((s, it) => s + (it.fat_g || 0), 0)),
+  };
+  const missingKcal = missing.reduce((s, it) => s + it.kcal, 0);
+  // Item 0 kkal (mis. Coke Zero) gak kebagian makro; kalau semua 0 kkal, bagi rata.
+  const shareOf = (it: MealItem) => (missingKcal > 0 ? it.kcal / missingKcal : 1 / missing.length);
+  // Sisa pembulatan masuk ke item terakhir biar jumlahnya pas sama total (gak bocor 0,1 g).
+  const split = (key: "protein_g" | "carbs_g" | "fat_g") => {
+    const parts = missing.map((it) => round1(rest[key] * shareOf(it)));
+    parts[parts.length - 1] = round1(Math.max(0, rest[key] - parts.slice(0, -1).reduce((s, v) => s + v, 0)));
+    return parts;
+  };
+  const p = split("protein_g");
+  const c = split("carbs_g");
+  const f = split("fat_g");
+  let k = 0;
+  return {
+    estimated: true,
+    items: items.map((it) => {
+      if (has(it)) return it;
+      const j = k++;
+      return { ...it, protein_g: p[j], carbs_g: c[j], fat_g: f[j] };
+    }),
+  };
+}
+
+/** Total gizi dari item × porsi yang dimakan. */
+export function eatenTotals(items: MealItem[]): MacroTotals {
+  const t = items.reduce(
+    (acc, it) => {
+      const f = it.eaten ?? 1;
+      return {
+        kcal: acc.kcal + it.kcal * f,
+        protein_g: acc.protein_g + (it.protein_g || 0) * f,
+        carbs_g: acc.carbs_g + (it.carbs_g || 0) * f,
+        fat_g: acc.fat_g + (it.fat_g || 0) * f,
+      };
+    },
+    { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 }
+  );
+  return { kcal: Math.round(t.kcal), protein_g: round1(t.protein_g), carbs_g: round1(t.carbs_g), fat_g: round1(t.fat_g) };
+}
+
+/** Bagian item yang GAK dimakan — jadi isi "sisa makanan" yang bisa dicatat nanti. */
+export function leftoverItems(items: MealItem[]): MealItem[] {
+  return items
+    .filter((it) => (it.eaten ?? 1) < 0.999)
+    .map((it) => {
+      const r = 1 - (it.eaten ?? 1);
+      return {
+        name: portionName(it.name, r),
+        kcal: Math.round(it.kcal * r),
+        protein_g: round1((it.protein_g || 0) * r),
+        carbs_g: round1((it.carbs_g || 0) * r),
+        fat_g: round1((it.fat_g || 0) * r),
+      };
+    });
+}
+
+/** Bersihin item buat Firestore (gak boleh ada nilai undefined; eaten cuma disimpan kalau < 1). */
+export function cleanItemsForSave(items: MealItem[]): MealItem[] {
+  return items.map((it) => ({
+    name: it.name,
+    kcal: Math.round(it.kcal),
+    ...(it.protein_g != null && { protein_g: round1(it.protein_g) }),
+    ...(it.carbs_g != null && { carbs_g: round1(it.carbs_g) }),
+    ...(it.fat_g != null && { fat_g: round1(it.fat_g) }),
+    ...(it.eaten != null && it.eaten < 0.999 && { eaten: Math.round(it.eaten * 1000) / 1000 }),
+  }));
+}
 
 export type Goals = {
   userId?: string;
@@ -120,7 +246,37 @@ export type SavedMeal = {
   /** Breakdown per item kalau ini paket/combo */
   items?: MealItem[];
   useCount?: number;
+  /**
+   * Sisa makanan (bukan favorit biasa): bagian paket yang gak kemakan, disimpan biar nanti
+   * tinggal 1-tap catat. Otomatis kehapus begitu dicatat.
+   */
+  leftover?: boolean;
+  /** Kapan makanan aslinya dicatat (ISO) — buat label "sisa dari kemarin" */
+  leftoverFrom?: string;
 };
+
+/** Bikin data sisa makanan dari entri yang cuma dimakan sebagian. null kalau gak ada sisa. */
+export function buildLeftover(
+  entry: Pick<FoodEntry, "name" | "createdAt">,
+  items: MealItem[]
+): Omit<SavedMeal, "id" | "userId" | "useCount"> | null {
+  const rest = leftoverItems(items);
+  if (rest.length === 0) return null;
+  const t = eatenTotals(rest);
+  const contents = rest.map((it) => it.name).join(" + ");
+  return {
+    name: `${contents} · sisa ${entry.name}`.slice(0, 120),
+    category: guessMealCategory(entry.name),
+    kcal: t.kcal,
+    protein_g: t.protein_g,
+    carbs_g: t.carbs_g,
+    fat_g: t.fat_g,
+    portion: contents.slice(0, 80),
+    ...(rest.length >= 2 && { items: cleanItemsForSave(rest) }),
+    leftover: true,
+    leftoverFrom: entry.createdAt,
+  };
+}
 
 // Tebak kategori dari nama — buat default + biar data lama tetap kefilter
 // tanpa migrasi (dipanggil saat filter kalau category belum keisi).

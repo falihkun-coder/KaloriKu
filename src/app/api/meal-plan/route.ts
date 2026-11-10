@@ -26,7 +26,8 @@ export async function POST(request: Request) {
       adminDb.collection("goals").doc(uid).get(),
       adminDb.collection("mealPlans").doc(uid).get(),
     ]);
-    const library = mealsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[];
+    // Sisa makanan bukan favorit — jangan dipakai AI buat nyusun rencana
+    const library = (mealsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[]).filter((m) => !m.leftover);
     const goals: Goals = goalsDoc.exists ? { ...DEFAULT_GOALS, ...(goalsDoc.data() as Goals) } : DEFAULT_GOALS;
     // Blacklist dibaca dari server biar selalu terbaru (client bisa stale)
     const saved = planDoc.exists ? (planDoc.data() as { dislikes?: unknown }) : null;

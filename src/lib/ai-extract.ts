@@ -101,8 +101,9 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
     meal (one of: "sarapan", "siang", "malam", "snack"),
     confidence (number 0-1),
     items (OPTIONAL array — ONLY when the food is a combo/paket/set or multiple foods:
-      [{ "name": string in Indonesian INCLUDING quantity e.g. "2 ayam goreng" / "nasi large" / "cola medium", "kcal": number }].
-      The per-item kcal MUST sum up to the total kcal. Keep ZERO-calorie items in the list too
+      [{ "name": string in Indonesian INCLUDING quantity e.g. "2 ayam goreng" / "nasi large" / "cola medium", "kcal": number, "protein_g": number, "carbs_g": number, "fat_g": number }].
+      The per-item kcal and macros MUST sum up to the totals. Put the count first in the name when there are
+      several pieces ("2 potong ayam goreng") — the user may eat only some of them. Keep ZERO-calorie items in the list too
       (e.g. "coca cola zero", "diet coke", "air putih", "teh tawar", "kopi hitam" → kcal: 0) — do NOT drop them.
       Omit the items array entirely only for a single simple food.)
   `;
@@ -120,15 +121,29 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
   // Item 0 kkal tetap disimpan (mis. minuman diet/zero, air putih) — asal ada namanya.
   let items: MealItem[] | undefined;
   if (Array.isArray(parsed.items) && parsed.items.length > 1) {
-    items = (parsed.items as { name?: unknown; kcal?: unknown }[])
-      .map((it) => ({
-        name: String(it.name ?? "").trim().slice(0, 60),
-        kcal: Math.max(0, Math.round(Number(it.kcal) || 0)),
-      }))
+    const grams = (v: unknown) => (Number.isFinite(Number(v)) && v !== null && v !== "" ? Math.max(0, Math.round(Number(v) * 10) / 10) : undefined);
+    items = (parsed.items as Record<string, unknown>[])
+      .map((it) => {
+        const p = grams(it.protein_g);
+        const c = grams(it.carbs_g);
+        const f = grams(it.fat_g);
+        return {
+          name: String(it.name ?? "").trim().slice(0, 60),
+          kcal: Math.max(0, Math.round(Number(it.kcal) || 0)),
+          // Makro per item cuma dipakai kalau lengkap tiga-tiganya (Firestore nolak undefined)
+          ...(p != null && c != null && f != null && { protein_g: p, carbs_g: c, fat_g: f }),
+        };
+      })
       .filter((it: MealItem) => it.name.length > 0)
       .slice(0, 12);
     if (items && items.length < 2) items = undefined;
   }
+  // Total selalu = jumlah item; makro juga, kalau semua item punya makro
+  const itemsHaveMacros = !!items && items.every((it) => it.protein_g != null);
+  const sum = (key: "protein_g" | "carbs_g" | "fat_g") =>
+    Math.round((items || []).reduce((s, it) => s + (it[key] || 0), 0) * 10) / 10;
+  const total = (key: "protein_g" | "carbs_g" | "fat_g") =>
+    itemsHaveMacros ? sum(key) : Math.max(0, Math.round((Number(parsed[key]) || 0) * 10) / 10);
   const totalKcal = items
     ? items.reduce((s, it) => s + it.kcal, 0)
     : Math.max(0, Math.round(Number(parsed.kcal) || 0));
@@ -136,9 +151,9 @@ export async function extractFood(input: ExtractInput): Promise<ExtractedFood> {
   return {
     name: String(parsed.name || "Makanan").slice(0, 80),
     kcal: totalKcal,
-    protein_g: Math.max(0, Math.round((Number(parsed.protein_g) || 0) * 10) / 10),
-    carbs_g: Math.max(0, Math.round((Number(parsed.carbs_g) || 0) * 10) / 10),
-    fat_g: Math.max(0, Math.round((Number(parsed.fat_g) || 0) * 10) / 10),
+    protein_g: total("protein_g"),
+    carbs_g: total("carbs_g"),
+    fat_g: total("fat_g"),
     portion: String(parsed.portion || "1 porsi").slice(0, 40),
     meal,
     confidence: Math.min(1, Math.max(0, Number(parsed.confidence) || 0.5)),

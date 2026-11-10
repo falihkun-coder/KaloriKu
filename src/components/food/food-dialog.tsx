@@ -4,9 +4,31 @@ import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { useStore } from "@/store/useStore";
-import { MealType, MEAL_ORDER, MEAL_LABELS, mealLabel } from "@/lib/calculations";
+import {
+  MealType,
+  MealItem,
+  MEAL_ORDER,
+  MEAL_LABELS,
+  mealLabel,
+  itemCount,
+  withItemMacros,
+  eatenTotals,
+  leftoverItems,
+  buildLeftover,
+  cleanItemsForSave,
+  fmtNum,
+} from "@/lib/calculations";
 import { toast } from "sonner";
-import { Trash2, X } from "lucide-react";
+import { Minus, Plus, Trash2, X } from "lucide-react";
+
+// Pilihan porsi buat item yang gak bisa dihitung per buah (nasi, minuman, ...)
+const PORTION_CHOICES: [number, string][] = [
+  [1, "Semua"],
+  [0.75, "¾"],
+  [0.5, "½"],
+  [0.25, "¼"],
+  [0, "Gak"],
+];
 
 function defaultMealNow(): MealType {
   const hour = Number(
@@ -83,12 +105,21 @@ export function FoodDialog() {
 
   const meals = useStore((state) => state.meals);
   const addMeal = useStore((state) => state.addMeal);
+  const addLeftover = useStore((state) => state.addLeftover);
+  const updateMeal = useStore((state) => state.updateMeal);
+  const deleteMeal = useStore((state) => state.deleteMeal);
 
   const isMobile = useIsMobile();
   const [loading, setLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [saveFav, setSaveFav] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
+
+  // Isi paket yang beneran dimakan (mis. PaNas 2 tapi ayamnya cuma 1)
+  const [itemsDraft, setItemsDraft] = useState<MealItem[] | null>(null);
+  const [itemsTouched, setItemsTouched] = useState(false);
+  const [macrosEstimated, setMacrosEstimated] = useState(false);
+  const [saveLeftover, setSaveLeftover] = useState(true);
 
   // Punya id = edit entri lama; tanpa id = draft baru (mis. hasil scan AI)
   const isEditing = !!editingEntry?.id;
@@ -101,6 +132,22 @@ export function FoodDialog() {
     setPrevKey(currentKey);
     if (isOpen) {
       setSaveFav(false);
+      setItemsTouched(false);
+      setSaveLeftover(true);
+      if (editingEntry?.items && editingEntry.items.length > 0) {
+        // Lengkapin makro per item (kalau belum ada) dari total entri, biar bisa dihitung ulang per item
+        const filled = withItemMacros(editingEntry.items, {
+          kcal: editingEntry.kcal || 0,
+          protein_g: editingEntry.protein_g || 0,
+          carbs_g: editingEntry.carbs_g || 0,
+          fat_g: editingEntry.fat_g || 0,
+        });
+        setItemsDraft(filled.items);
+        setMacrosEstimated(filled.estimated);
+      } else {
+        setItemsDraft(null);
+        setMacrosEstimated(false);
+      }
       setForm(
         editingEntry
           ? {
@@ -118,6 +165,27 @@ export function FoodDialog() {
     }
   }
 
+  // Ubah porsi 1 item yang dimakan → total kalori & makro di form ikut dihitung ulang
+  const setEaten = (index: number, value: number) => {
+    if (!itemsDraft) return;
+    const next = itemsDraft.map((it, i) => (i === index ? { ...it, eaten: value } : it));
+    setItemsDraft(next);
+    setItemsTouched(true);
+    const t = eatenTotals(next);
+    setForm((f) => ({
+      ...f,
+      kcal: String(t.kcal),
+      protein: String(t.protein_g),
+      carbs: String(t.carbs_g),
+      fat: String(t.fat_g),
+    }));
+  };
+
+  const restItems = itemsDraft ? leftoverItems(itemsDraft) : [];
+  const existingLeftover = editingEntry?.leftoverMealId
+    ? meals.find((m) => m.id === editingEntry.leftoverMealId && m.leftover)
+    : undefined;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -132,15 +200,39 @@ export function FoodDialog() {
         meal: form.meal,
         createdAt: new Date(form.datetime).toISOString(),
       };
+      // Isi paket cuma ditulis ulang kalau porsinya beneran diubah
+      const items = itemsTouched && itemsDraft ? cleanItemsForSave(itemsDraft) : undefined;
+
+      // Sisa makanan: bikin baru / update yang udah ada / hapus kalau udah gak ada sisa
+      let leftoverId: string | undefined;
+      if (itemsTouched && itemsDraft) {
+        const leftover = saveLeftover ? buildLeftover({ name: payload.name, createdAt: payload.createdAt }, itemsDraft) : null;
+        if (leftover && existingLeftover) {
+          await updateMeal(existingLeftover.id, { ...leftover, items: leftover.items ?? [] });
+          leftoverId = existingLeftover.id;
+        } else if (leftover) {
+          leftoverId = await addLeftover(leftover);
+        } else if (existingLeftover) {
+          await deleteMeal(existingLeftover.id);
+        }
+      }
+      const savedLeftover = leftoverId ? " — sisanya disimpan 🥡" : "";
+
       if (isEditing && editingEntry?.id) {
-        await updateEntry(editingEntry.id, payload);
-        toast.success("Entri diupdate!");
+        await updateEntry(editingEntry.id, {
+          ...payload,
+          ...(items && { items }),
+          ...(leftoverId && { leftoverMealId: leftoverId }),
+        });
+        toast.success(`Entri diupdate${savedLeftover}!`);
       } else {
+        const draftItems = items ?? (editingEntry?.items && editingEntry.items.length > 0 ? editingEntry.items : undefined);
         await addEntry({
           ...payload,
           source: editingEntry?.source || "manual",
           ...(editingEntry?.confidence != null && { confidence: editingEntry.confidence }),
-          ...(editingEntry?.items && editingEntry.items.length > 0 && { items: editingEntry.items }),
+          ...(draftItems && { items: draftItems }),
+          ...(leftoverId && { leftoverMealId: leftoverId }),
         });
         if (saveFav) {
           await addMeal({
@@ -152,7 +244,7 @@ export function FoodDialog() {
             portion: payload.portion,
           });
         }
-        toast.success("Makan tercatat!");
+        toast.success(`Makan tercatat${savedLeftover}!`);
       }
       closeFoodDialog();
     } catch {
@@ -193,24 +285,14 @@ export function FoodDialog() {
               Estimasi AI (yakin {Math.round(editingEntry.confidence * 100)}%) — cek & koreksi dulu sebelum simpan.
             </p>
           </div>
-          {editingEntry.items && editingEntry.items.length > 0 && (
-            <div className="space-y-1 pt-1 border-t border-white/20">
-              {editingEntry.items.map((it, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 text-[12px] text-white/85">
-                  <span>{it.name}</span>
-                  <span className="font-semibold tabular-nums shrink-0">{it.kcal} kkal</span>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
-      {/* Chips favorit — 1-tap isi form dari library */}
-      {!isEditing && !isDraft && meals.length > 0 && (
+      {/* Chips favorit — 1-tap isi form dari library (sisa makanan punya tempat sendiri) */}
+      {!isEditing && !isDraft && meals.some((m) => !m.leftover) && (
         <div className="space-y-1.5">
           <label className={labelCls}>Favorit</label>
           <div className="flex flex-wrap gap-2">
-            {meals.slice(0, 6).map((m) => (
+            {meals.filter((m) => !m.leftover).slice(0, 6).map((m) => (
               <button
                 key={m.id}
                 type="button"
@@ -247,6 +329,116 @@ export function FoodDialog() {
           className={fieldCls}
         />
       </div>
+
+      {/* Isi paket yang beneran dimakan — total di bawah ikut dihitung ulang */}
+      {itemsDraft && itemsDraft.length > 0 && (
+        <div className="space-y-1.5">
+          <label className={labelCls}>Isi yang beneran dimakan</label>
+          <div className="rounded-[14px] bg-white/10 border border-white/20 divide-y divide-white/15">
+            {itemsDraft.map((it, i) => {
+              const count = itemCount(it.name);
+              const eaten = it.eaten ?? 1;
+              const pieces = count ? Math.round(eaten * count) : 0;
+              return (
+                <div key={i} className="px-3 py-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className={`text-[13px] font-medium ${eaten === 0 ? "line-through text-white/45" : "text-white"}`}
+                    >
+                      {it.name}
+                    </span>
+                    <span className="text-[12px] font-bold tabular-nums shrink-0 text-white">
+                      {fmtNum(it.kcal * eaten)} kkal
+                    </span>
+                  </div>
+                  {count ? (
+                    // Item yang bisa dihitung per buah: "1 dari 2"
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setEaten(i, Math.max(0, pieces - 1) / count)}
+                        disabled={pieces <= 0}
+                        aria-label={`Kurangi ${it.name}`}
+                        className="h-8 w-8 rounded-[9px] bg-white/15 text-white flex items-center justify-center hover:bg-white/25 transition-colors disabled:opacity-35"
+                      >
+                        <Minus size={14} />
+                      </button>
+                      <span className="text-[12px] text-white/90 tabular-nums min-w-[96px] text-center">
+                        {pieces} dari {count} dimakan
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setEaten(i, Math.min(count, pieces + 1) / count)}
+                        disabled={pieces >= count}
+                        aria-label={`Tambah ${it.name}`}
+                        className="h-8 w-8 rounded-[9px] bg-white/15 text-white flex items-center justify-center hover:bg-white/25 transition-colors disabled:opacity-35"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    </div>
+                  ) : (
+                    // Nasi, minuman, dll: pilih porsinya
+                    <div className="flex flex-wrap gap-1.5">
+                      {PORTION_CHOICES.map(([value, label]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => setEaten(i, value)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                            Math.abs(eaten - value) < 0.01
+                              ? "bg-white text-primary border-white"
+                              : "bg-white/10 text-white/80 border-white/25 hover:bg-white/20"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {itemsTouched && macrosEstimated && (
+            <p className="text-[11px] text-white/65">Makro per item diperkirakan dari porsi kalorinya.</p>
+          )}
+
+          {/* Sisa yang gak kemakan → simpan biar nanti tinggal 1-tap */}
+          {restItems.length > 0 && (
+            <div className="rounded-[12px] bg-white/10 border border-white/20 px-3 py-2.5 space-y-2">
+              <p className="text-[12px] text-white/90">
+                🥡 Sisa: <span className="font-semibold">{restItems.map((r) => r.name).join(" + ")}</span> ·{" "}
+                {fmtNum(restItems.reduce((s, r) => s + r.kcal, 0))} kkal
+              </p>
+              {itemsTouched ? (
+                <button
+                  type="button"
+                  onClick={() => setSaveLeftover(!saveLeftover)}
+                  className={`flex items-center gap-2 text-[12px] font-medium transition-colors ${
+                    saveLeftover ? "text-white" : "text-white/60 hover:text-white/85"
+                  }`}
+                >
+                  <span
+                    className={`rounded-[6px] border flex items-center justify-center text-[10px] ${
+                      saveLeftover ? "bg-white text-primary border-white" : "border-white/40"
+                    }`}
+                    style={{ width: 18, height: 18 }}
+                  >
+                    {saveLeftover ? "✓" : ""}
+                  </span>
+                  Simpan sisanya — nanti tinggal 1-tap catat
+                </button>
+              ) : (
+                <p className="text-[11px] text-white/65">
+                  {existingLeftover
+                    ? "Sisanya ada di 🥡 Sisa makanan, tinggal dicatat pas dimakan."
+                    : "Sisanya gak ada di daftar sisa. Mau disimpan? Tap porsinya lagi."}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Kalori */}
       <div className="space-y-1.5">

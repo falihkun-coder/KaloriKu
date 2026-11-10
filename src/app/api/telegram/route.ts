@@ -194,8 +194,9 @@ function favLabel(m: SavedMeal): string {
 
 async function getFavorites(userId: string): Promise<SavedMeal[]> {
   const snap = await adminDb.collection("meals").where("userId", "==", userId).get();
+  // Sisa makanan paling atas (biar gak lupa dimakan), sisanya urut paling sering dipakai
   return (snap.docs.map((d) => ({ id: d.id, ...d.data() })) as SavedMeal[]).sort(
-    (a, b) => (b.useCount || 0) - (a.useCount || 0)
+    (a, b) => Number(!!b.leftover) - Number(!!a.leftover) || (b.useCount || 0) - (a.useCount || 0)
   );
 }
 
@@ -234,7 +235,7 @@ function favListView(all: SavedMeal[], cat: string, page: number, q: string): { 
     })),
     ...slice.map((m) => [
       {
-        text: `${CAT_EMOJI[mealCategoryOf(m)]} ${clipBytes(favLabel(m), 60)} · ${fmtNum(m.kcal)}`,
+        text: `${m.leftover ? "🥡" : CAT_EMOJI[mealCategoryOf(m)]} ${clipBytes(favLabel(m), 60)} · ${fmtNum(m.kcal)}`,
         callback_data: `lv:${m.id}:${state}`,
       },
     ]),
@@ -250,7 +251,7 @@ function favListView(all: SavedMeal[], cat: string, page: number, q: string): { 
 }
 
 function favDetailView(m: SavedMeal, state: string): { text: string; keyboard: InlineKeyboard } {
-  let text = `⭐ ${favLabel(m)}\n`;
+  let text = `${m.leftover ? "🥡 Sisa:" : "⭐"} ${favLabel(m)}\n`;
   text += `🔥 ${fmtNum(m.kcal)} kkal · ${m.portion || "1 porsi"}\n`;
   text += `💪 P ${fmtNum(m.protein_g)} g · 🍚 K ${fmtNum(m.carbs_g)} g · 🥑 L ${fmtNum(m.fat_g)} g`;
   if (m.items && m.items.length > 0) {
@@ -428,10 +429,12 @@ export async function POST(request: Request) {
           ...(meal.items && meal.items.length > 0 && { items: meal.items }),
           createdAt: new Date().toISOString(),
         });
-        // useCount buat urutan favorit — gagal pun gak masalah
-        await mealRef.update({ useCount: FieldValue.increment(1) }).catch(() => {});
+        // Sisa makanan cuma sekali pakai → hapus. Favorit biasa → useCount naik (urutan).
+        // Gagal pun gak masalah — entrinya udah kecatat.
+        if (meal.leftover) await mealRef.delete().catch(() => {});
+        else await mealRef.update({ useCount: FieldValue.increment(1) }).catch(() => {});
 
-        let msg = `✅ Tercatat: ${favLabel(meal)} — ${fmtNum(meal.kcal)} kkal\n${MEAL_EMOJI[mealType]} ${MEAL_LABELS[mealType]}`;
+        let msg = `✅ Tercatat${meal.leftover ? " (sisa 🥡)" : ""}: ${favLabel(meal)} — ${fmtNum(meal.kcal)} kkal\n${MEAL_EMOJI[mealType]} ${MEAL_LABELS[mealType]}`;
         const sisa = await sisaLine(owner.id);
         if (sisa) msg += `\n\n${sisa}`;
         await editMessage(chatId, messageId, msg, {

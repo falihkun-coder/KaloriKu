@@ -19,6 +19,7 @@ import { MealBreakdown } from "@/components/dashboard/meal-breakdown";
 import { TodayEntries } from "@/components/dashboard/today-entries";
 import { WaterCard } from "@/components/dashboard/water-card";
 import { PlanCard } from "@/components/dashboard/plan-card";
+import { LeftoverCard } from "@/components/dashboard/leftover-card";
 import { ExerciseCard } from "@/components/dashboard/exercise-card";
 import { AdvisorCard } from "@/components/dashboard/advisor-card";
 import { useAuth } from "@/components/auth-provider";
@@ -101,6 +102,9 @@ export default function DashboardPage() {
 
       {/* Menu hari ini — jawaban "mau makan apa" */}
       <PlanCard />
+
+      {/* Sisa makanan (kalau ada) */}
+      <LeftoverCard />
 
       {/* Macro vs target */}
       <MacroCards goals={goals} consumed={consumed} />
