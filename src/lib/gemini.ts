@@ -30,7 +30,7 @@ export type GeminiResult = {
   searchSuggestionsHtml?: string;
 };
 
-export async function generate(opts: {
+type GenerateOpts = {
   /** Nama tugas — model & level thinking-nya diatur di ai-pricing.ts */
   task: AiTask;
   prompt: string;
@@ -38,8 +38,71 @@ export async function generate(opts: {
   media?: { data: string; mimeType: string }[];
   /** Pakai Google Search buat cari data terkini/resmi (5.000 request gratis per bulan) */
   grounded?: boolean;
-}): Promise<GeminiResult> {
-  const model = AI_MODELS[opts.task];
+};
+
+// ===== Model cadangan =====
+// Model utama (Argon) bisa tumbang pas Google lagi penuh — 21 Nov 2026 dites: Argon 503 "high demand"
+// lalu timeout 60 dtk, sementara 3.6 Flash 11 dtk & 3.5 Flash-Lite 1 dtk. Daripada semua fitur AI
+// ikut gagal, pindah otomatis ke model cadangan. Biaya tetap kecatat pakai model yang beneran dipakai.
+const FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+
+// Batas waktu SATU percobaan per tugas. Rencana mingguan emang panjang (Argon normalnya ~97 dtk).
+const ATTEMPT_TIMEOUT_MS: Record<AiTask, number> = {
+  foodExtract: 45_000,
+  exercise: 30_000,
+  advisor: 40_000,
+  workout: 40_000,
+  mealPlan: 150_000,
+};
+// Total semua percobaan — function-nya timeout 300 dtk, sisain buat nyimpen hasil & bales.
+const TOTAL_BUDGET_MS = 240_000;
+// Model yang barusan gagal dilewatin dulu, biar request berikutnya gak ikut nunggu timeout.
+const COOLDOWN_MS = 10 * 60_000;
+const downUntil = new Map<string, number>();
+
+/** Error sementara dari sisi Google (penuh / kelamaan) → layak dicoba ke model lain. */
+function isTransient(e: unknown): boolean {
+  const err = e as { status?: unknown; name?: unknown } | null;
+  if (err?.name === "AbortError" || err?.name === "TimeoutError") return true;
+  return typeof err?.status === "number" && (err.status === 408 || err.status === 429 || err.status >= 500);
+}
+
+function describeError(e: unknown): string {
+  const err = e as { status?: unknown; name?: unknown } | null;
+  if (err?.name === "AbortError" || err?.name === "TimeoutError") return "timeout";
+  return typeof err?.status === "number" ? `HTTP ${err.status}` : String(err?.name || "error");
+}
+
+export async function generate(opts: GenerateOpts): Promise<GeminiResult> {
+  const primary = AI_MODELS[opts.task];
+  const chain = [primary, ...FALLBACK_MODELS.filter((m) => m !== primary)];
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
+  let lastError: unknown = new Error("Semua model AI gagal");
+
+  for (let i = 0; i < chain.length; i++) {
+    const model = chain[i];
+    const isLast = i === chain.length - 1;
+    // Yang lagi "istirahat" dilewatin — kecuali cadangan terakhir, itu selalu dicoba.
+    if (!isLast && (downUntil.get(model) || 0) > Date.now()) continue;
+    const remaining = deadline - Date.now();
+    if (remaining < 5_000) break;
+
+    try {
+      const result = await callModel(model, opts, Math.min(ATTEMPT_TIMEOUT_MS[opts.task], remaining));
+      if (model !== primary) console.warn(`gemini: ${opts.task} dijawab model cadangan ${model}`);
+      return result;
+    } catch (e) {
+      lastError = e;
+      // Saldo habis (402), request salah (400), dll: ganti model gak bakal nolong.
+      if (!isTransient(e)) throw e;
+      downUntil.set(model, Date.now() + COOLDOWN_MS);
+      console.warn(`gemini: ${model} gagal (${describeError(e)}) buat ${opts.task} — coba model cadangan`);
+    }
+  }
+  throw lastError;
+}
+
+async function callModel(model: string, opts: GenerateOpts, timeoutMs: number): Promise<GeminiResult> {
   const parts: Part[] = [{ text: opts.prompt }];
   for (const m of opts.media || []) parts.push({ inlineData: { data: m.data, mimeType: m.mimeType } });
 
@@ -47,6 +110,7 @@ export async function generate(opts: {
     model,
     contents: [{ role: "user", parts }],
     config: {
+      httpOptions: { timeout: timeoutMs },
       thinkingConfig: { thinkingLevel: ThinkingLevel[AI_THINKING[opts.task]] },
       // Mode JSON bikin parsing andal — tapi kalau digabung grounding, Google gak ngirim sumber &
       // Search Suggestions (dites). Jadi grounded pakai teks biasa, JSON-nya diambil manual.
@@ -95,6 +159,10 @@ export function aiServiceProblem(e: unknown): string | null {
   }
   if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(msg)) {
     return "⏳ AI lagi kena batas pemakaian. Coba lagi beberapa menit lagi ya.";
+  }
+  // Sampai sini berarti model cadangan juga udah dicoba (generate() pindah model otomatis).
+  if (isTransient(e)) {
+    return "⏳ Server AI Google lagi penuh banget — model utama & cadangan sama-sama gak bales. Coba lagi beberapa menit lagi ya.\n\nSementara itu masih bisa /favorit atau catat manual di web.";
   }
   return null;
 }
