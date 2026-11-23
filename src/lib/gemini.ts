@@ -41,10 +41,11 @@ type GenerateOpts = {
 };
 
 // ===== Model cadangan =====
-// Model utama (Argon) bisa tumbang pas Google lagi penuh — 21 Nov 2026 dites: Argon 503 "high demand"
-// lalu timeout 60 dtk, sementara 3.6 Flash 11 dtk & 3.5 Flash-Lite 1 dtk. Daripada semua fitur AI
-// ikut gagal, pindah otomatis ke model cadangan. Biaya tetap kecatat pakai model yang beneran dipakai.
-const FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+// Model utama bisa tumbang pas Google lagi penuh — 21 Nov 2026 Argon 503 "high demand" lalu timeout
+// 60 dtk; 23 Nov 2026 Neon & Hydrogen 503 terus selama 2,5 menit, cuma 3.5 Flash-Lite yang hidup.
+// Daripada semua fitur AI ikut gagal, pindah otomatis ke model cadangan (urut dari yang paling
+// pinter). Biaya tetap kecatat pakai model yang beneran jawab.
+const FALLBACK_MODELS = ["gemini-4-hydrogen", "gemini-3.6-flash", "gemini-3.5-flash-lite"];
 
 // Batas waktu SATU percobaan per tugas. Rencana mingguan emang panjang (Argon normalnya ~97 dtk).
 const ATTEMPT_TIMEOUT_MS: Record<AiTask, number> = {
@@ -59,12 +60,36 @@ const TOTAL_BUDGET_MS = 240_000;
 // Model yang barusan gagal dilewatin dulu, biar request berikutnya gak ikut nunggu timeout.
 const COOLDOWN_MS = 10 * 60_000;
 const downUntil = new Map<string, number>();
+// Cadangan terakhir dicoba ulang dulu sebelum nyerah: pas Google penuh, 503-nya putus-nyambung
+// (23 Nov 2026: Flash-Lite 503, belasan detik kemudian jalan lagi). Tier "priority" yang lebih
+// mahal juga udah dites — Neon tetap 503, jadi gak usah bayar lebih.
+const LAST_MODEL_RETRY_DELAYS_MS = [2_000, 4_000, 8_000];
+// Sisa waktu minimal biar satu percobaan masih masuk akal.
+const MIN_ATTEMPT_MS = 5_000;
 
-/** Error sementara dari sisi Google (penuh / kelamaan) → layak dicoba ke model lain. */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Error sementara dari sisi Google (penuh / kelamaan). */
 function isTransient(e: unknown): boolean {
   const err = e as { status?: unknown; name?: unknown } | null;
   if (err?.name === "AbortError" || err?.name === "TimeoutError") return true;
   return typeof err?.status === "number" && (err.status === 408 || err.status === 429 || err.status >= 500);
+}
+
+/** Ditolak cepet karena Google lagi penuh / kena limit sesaat — layak dicoba ulang bentar lagi. */
+function isOverloaded(e: unknown): boolean {
+  const status = (e as { status?: unknown } | null)?.status;
+  return typeof status === "number" && (status === 429 || status >= 500);
+}
+
+/**
+ * Layak dicoba ke model lain? Ya, KECUALI masalahnya di key/saldo (401/402/403) — semua model
+ * pakai key & saldo yang sama, jadi pindah model gak nolong. Penolakan khusus model (mis. 400/404
+ * karena model baru gak nerima sebuah setting) tetap dicoba ke cadangan.
+ */
+function canFallback(e: unknown): boolean {
+  const status = (e as { status?: unknown } | null)?.status;
+  return !(status === 401 || status === 402 || status === 403);
 }
 
 function describeError(e: unknown): string {
@@ -84,19 +109,40 @@ export async function generate(opts: GenerateOpts): Promise<GeminiResult> {
     const isLast = i === chain.length - 1;
     // Yang lagi "istirahat" dilewatin — kecuali cadangan terakhir, itu selalu dicoba.
     if (!isLast && (downUntil.get(model) || 0) > Date.now()) continue;
-    const remaining = deadline - Date.now();
-    if (remaining < 5_000) break;
+    const retryDelays = isLast ? LAST_MODEL_RETRY_DELAYS_MS : [];
 
-    try {
-      const result = await callModel(model, opts, Math.min(ATTEMPT_TIMEOUT_MS[opts.task], remaining));
-      if (model !== primary) console.warn(`gemini: ${opts.task} dijawab model cadangan ${model}`);
-      return result;
-    } catch (e) {
-      lastError = e;
-      // Saldo habis (402), request salah (400), dll: ganti model gak bakal nolong.
-      if (!isTransient(e)) throw e;
-      downUntil.set(model, Date.now() + COOLDOWN_MS);
-      console.warn(`gemini: ${model} gagal (${describeError(e)}) buat ${opts.task} — coba model cadangan`);
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      const wait = attempt > 0 ? retryDelays[attempt - 1] : 0;
+      if (deadline - Date.now() < wait + MIN_ATTEMPT_MS) throw lastError;
+      if (wait) await sleep(wait);
+      const remaining = deadline - Date.now();
+
+      try {
+        const result = await callModel(model, opts, Math.min(ATTEMPT_TIMEOUT_MS[opts.task], remaining));
+        if (model !== primary) {
+          const retried = attempt > 0 ? ` (percobaan ke-${attempt + 1})` : "";
+          console.warn(`gemini: ${opts.task} dijawab model cadangan ${model}${retried}`);
+        }
+        return result;
+      } catch (e) {
+        lastError = e;
+        if (!canFallback(e)) throw e;
+        // Dijeda cuma kalau modelnya yang bermasalah (penuh/timeout/gak ada) — 400 bisa jadi
+        // gara-gara isi request-nya, jadi jangan bikin model utama dilewatin 10 menit.
+        if (isTransient(e) || (e as { status?: unknown } | null)?.status === 404) {
+          downUntil.set(model, Date.now() + COOLDOWN_MS);
+        }
+        // Diulang cuma kalau ditolak cepet karena penuh. Timeout udah makan banyak waktu, dan
+        // error lain gak bakal berubah kalau diulang.
+        const retrying = attempt < retryDelays.length && isOverloaded(e);
+        const next = retrying
+          ? `coba lagi ${retryDelays[attempt] / 1000} dtk lagi`
+          : isLast
+            ? "semua model gagal"
+            : "coba model cadangan";
+        console.warn(`gemini: ${model} gagal (${describeError(e)}) buat ${opts.task} — ${next}`);
+        if (!retrying) break;
+      }
     }
   }
   throw lastError;

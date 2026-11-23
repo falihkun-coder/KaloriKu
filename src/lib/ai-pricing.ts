@@ -12,8 +12,9 @@ export type AiUsage = {
   grounded?: boolean;
 };
 
-// Model default semua fitur AI.
-export const AI_MODEL = "gemini-4-argon";
+// Model default semua fitur AI. Gemini 4 Neon (rilis 18 Nov 2026): $3/$15 tanpa jadwal naik,
+// sementara Argon naik jadi $4/$20 per 1 Des 2026. Kalau lagi down, gemini.ts pindah ke cadangan.
+export const AI_MODEL = "gemini-4-neon";
 
 // Model per tugas — mau geser tugas ringan ke model lebih murah? cukup ganti di sini.
 export const AI_MODELS = {
@@ -42,7 +43,8 @@ export const AI_THINKING: Record<keyof typeof AI_MODELS, ThinkingDepth> = {
 };
 
 // Tarif resmi Gemini API paid tier (USD per 1 juta token), dari
-// ai.google.dev/gemini-api/docs/pricing — dicek 20 Okt 2026. Output = jawaban + thinking.
+// ai.google.dev/gemini-api/docs/pricing — dicek 20 Okt 2026, Gemini 4 Neon/Hydrogen/Carbon
+// dicek 23 Nov 2026. Output = jawaban + thinking.
 // Tiap model boleh punya beberapa entri; yang dipakai entri terakhir yang `from` <= tanggal
 // request, jadi kenaikan harga terjadwal otomatis kehitung tanpa ngubah kode.
 type Rate = { from: string; inputUsd: number; outputUsd: number };
@@ -50,11 +52,15 @@ const FLASH_RATES: Rate[] = [
   { from: "2000-01-01", inputUsd: 0.75, outputUsd: 3.75 },
   { from: "2027-01-01", inputUsd: 1.5, outputUsd: 7.5 },
 ];
+const ARGON_CARBON_RATES: Rate[] = [
+  { from: "2000-01-01", inputUsd: 2, outputUsd: 10 },
+  { from: "2026-12-01", inputUsd: 4, outputUsd: 20 },
+];
 const RATES: Record<string, Rate[]> = {
-  "gemini-4-argon": [
-    { from: "2000-01-01", inputUsd: 2, outputUsd: 10 },
-    { from: "2026-12-01", inputUsd: 4, outputUsd: 20 },
-  ],
+  "gemini-4-neon": [{ from: "2000-01-01", inputUsd: 3, outputUsd: 15 }],
+  "gemini-4-hydrogen": [{ from: "2000-01-01", inputUsd: 1.5, outputUsd: 7.5 }],
+  "gemini-4-carbon": ARGON_CARBON_RATES,
+  "gemini-4-argon": ARGON_CARBON_RATES,
   "gemini-3.8-flash": FLASH_RATES,
   "gemini-3.6-flash": FLASH_RATES,
   // Udah deprecated — Google ngalihin request-nya ke 3.6-flash.

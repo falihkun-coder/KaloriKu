@@ -16,9 +16,13 @@ import {
 import { fmtNum } from "@/lib/calculations";
 
 const MODEL_LABEL: Record<string, string> = {
+  "gemini-4-neon": "Gemini 4 Neon",
+  "gemini-4-hydrogen": "Gemini 4 Hydrogen",
+  "gemini-4-carbon": "Gemini 4 Carbon",
   "gemini-4-argon": "Gemini 4 Argon",
   "gemini-3.8-flash": "Gemini 3.8 Flash",
   "gemini-3.6-flash": "Gemini 3.6 Flash",
+  "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
 };
 
 function fmtDate(isoDay: string) {
@@ -105,7 +109,7 @@ export function AiUsageCard() {
             cuma batas bawah karena token "mikir"-nya dulu belum kecatat.
           </>
         )}{" "}
-        Angka pastinya tetap di Google Cloud Billing. Cuma ngitung pemakaian dari KaloriKu (API key-nya dibagi sama
+        Angka pastinya ada di AI Studio → Billing. Cuma ngitung pemakaian dari KaloriKu (saldo Gemini-nya dibagi sama
         Spending Tracker).
       </p>
     </div>
