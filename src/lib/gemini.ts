@@ -203,6 +203,11 @@ export function aiServiceProblem(e: unknown): string | null {
   if (status === 402 || /prepayment credits are depleted/i.test(msg)) {
     return "⚠️ Saldo AI (Gemini) lagi habis, jadi scan & hitung otomatis belum bisa. Top up dulu di AI Studio → Billing: https://ai.studio/projects\n\nSementara itu masih bisa /favorit atau catat manual di web.";
   }
+  // 403 "outstanding balance" (27 Nov 2026): ada tagihan Google yang belum dibayar, semua model
+  // diblokir. Beda sama saldo habis — ini dilunasin lewat "Make a payment", bukan beli kredit.
+  if (/outstanding balance/i.test(msg)) {
+    return "⚠️ Akun billing Google lagi ada tagihan yang belum dibayar, jadi AI-nya diblokir Google. Lunasin dulu di AI Studio → Billing (Make a payment): https://aistudio.google.com/billing\n\nSementara itu masih bisa /favorit atau catat manual di web.";
+  }
   if (status === 429 || /RESOURCE_EXHAUSTED|quota/i.test(msg)) {
     return "⏳ AI lagi kena batas pemakaian. Coba lagi beberapa menit lagi ya.";
   }
